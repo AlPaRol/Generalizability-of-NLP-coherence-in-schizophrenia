@@ -1,0 +1,3525 @@
+---
+title: "Voice_Analysis"
+author: "Parola Alberto"
+date: "18/03/2022"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+
+require("knitr")
+
+knitr::opts_chunk$set(echo=TRUE, warning=FALSE, message=FALSE)
+
+rm(list=ls())
+
+set.seed(2020)
+placeholder=0
+
+```
+
+##1 Load data
+
+```{r, include= FALSE}
+
+
+# load packages and data
+
+
+pacman::p_load(tidyverse,
+               readxl,
+               brms,
+               metafor,
+               miceadds,
+               knitr,
+               broom, 
+               ggridges, 
+               posterior, 
+               ggpubr,
+               formattable,
+               here,
+               patchwork)
+
+
+source.all(here("functions"))
+
+d_trial<- ReadPreProcess("Coherence_Final.csv")
+
+d_trial_SZ <- subset(d_trial, Diagnosis == "SCZ")
+
+
+```
+
+##2 Meta-analysis
+
+```{r, include= FALSE, eval = TRUE}
+
+
+# Load meta-analysis data and provide summary effect-sizes for the informed prior models
+
+
+
+d <- read_excel("G:/data/meta/Table_Studies_Selected.xlsx")
+
+
+DataPreprocessES(d)
+
+
+
+for (i in unique(d$Measure)){
+  d1 <- d %>% subset(Measure==i)
+  
+  print(paste0("Feature name is ", i))
+  
+    if (nrow(d1) > 1) {
+      print("Meta-analyses model")
+      # Random Effects Model
+      # N.B. tau squared in rma.mv is called sigma squared.
+      model <-
+        rma.mv(
+          EffectSize,
+          Variance,
+          random = ~ 1 | ID,
+          method = "ML",
+          data = d1,
+          slab = ID
+        )
+      
+       ma <- data.frame(
+    Measure = i,
+    Mean = round(model$b, 2),
+    Sd = round(model$se, 2),
+    CI_l = round(model$ci.lb, 2),
+    CI_u = round(model$ci.ub, 2)
+    )
+  
+      
+       assign(paste0(i, "_Prior"), ma, envir = .GlobalEnv)
+    } else {
+       ma <- data.frame(
+  Measure = i,  
+  Mean = round(d1$EffectSize,2),
+  Sd = round(d1$StandardError,2),
+  CI_l = round(d1$EffectSize - (1.96* d1$StandardError),2),
+  CI_u = round(d1$EffectSize + (1.96* d1$StandardError),2)
+  )
+  #return(ma)
+  assign(paste0(i, "_Prior"), ma, envir = .GlobalEnv)
+      
+    }
+}
+
+
+
+```
+
+
+##3 Model definitions
+
+```{r, echo= FALSE}
+
+
+# Defining models
+
+Model_Language_f <- bf(Outcome ~ 0 + Language + Language:Diagnosis + 
+                         (1 | gr(NewID, by=group)))
+
+
+Model_Gender_f <- bf(Outcome ~ 0 + Language:Gender + Language:Gender:Diagnosis + (1 | gr(NewID, by=group2)))
+
+
+
+Model_Age_f <- bf(Outcome ~ 0 + Language + Language:Diagnosis + Language:Age + Language:Diagnosis:Age + (1 | gr(NewID, by=group2))) 
+
+
+Model_IQ_f <- bf(Outcome ~ 0 + Language + Language:Diagnosis + Language:VerbIQ + Language:Diagnosis:VerbIQ + (1 | gr(NewID, by=group2))) 
+
+
+Model_Length_f <-  bf(Outcome ~ 0 + Language + Language:Diagnosis + Language:Diagnosis:TotalWords + (1 | gr(NewID, by=group2)))
+
+
+Model_Education_f <- bf(Outcome ~ 0 + Language + Language:Diagnosis + Language:Diagnosis:Education + (1 | gr(NewID, by=group2)))
+
+
+# Defining priors
+
+SkepticPrior <- c(
+  prior(normal(0, .5), class=b),
+  prior(normal(0, .7), class=sd),
+  prior(normal(0.3, 0.1), class = sigma)
+)
+
+
+
+# Models on symptoms
+
+SymptomVoice_Language_f <-
+  bf(Outcome ~ 0 + Language + Language : mo(Symptom) +
+       (1 | gr(NewID, by = Language)))
+
+
+
+
+
+```
+
+
+# 4 Similarity Mean
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+# Now run the models for each coherence measure
+
+SimilarityMedianDf <- ModelsByDiagnosis(Name = "SimilarityMedian_N",
+                              data = d_trial,
+                              Variable = d_trial$SimilarityMedian,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = SimilarityMean_Prior,
+                              Informed = TRUE,
+                              level="Trial")
+
+
+
+
+```
+
+
+
+##5 Coherence 5 
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence5MeanDf <- ModelsByDiagnosis(Name = "Coherence5Median_N",
+                              data = d_trial,
+                              Variable = d_trial$Coherence5Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = `Coherence-5_Prior`,
+                              Informed = TRUE,
+                              level="Trial")
+
+
+
+```
+
+
+
+
+##6 Coherence 10
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "Coherence10Median_N",
+                              data = d_trial,
+                              Variable = d_trial$Coherence10Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = `Coherence-10_Prior`,
+                              Informed = TRUE,
+                              level="Trial")
+
+
+ht
+
+```
+
+##7 Coherence K2
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK2Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK2Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = k2_Prior,
+                              Informed = TRUE,
+                              level="Trial")
+
+ht
+
+
+
+```
+
+##8 Coherence K3
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK3Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK3Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = k3_Prior,
+                              Informed = TRUE,
+                              level="Trial")
+
+ht
+
+
+
+```
+
+
+##9 Coherence K4
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK4Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK4Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = k4_Prior,
+                              Informed = TRUE,
+                              level="Trial")
+
+
+
+```
+
+##10 Coherence K5
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK5Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK5Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = k5_Prior,
+                              Informed = TRUE,
+                              level="Trial")
+
+
+```
+
+##11 Coherence K6
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK6Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK6Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+
+
+```
+
+
+
+##12 Coherence K7
+
+```{r, eval =TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK7Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK7Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+
+
+```
+
+
+##13 Coherence K8
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK8Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK8Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+
+
+```
+
+##14 Coherence K9
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK9Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK9Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+```
+
+
+
+##15 Coherence K10
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceK10Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceK10Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+
+
+```
+
+
+##18 Coherence First-order
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceSntMedian_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceSntMedian,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = `1_order_Prior`,
+                              Informed = TRUE,
+                              level="Trial")
+
+ht
+# 
+# 
+# Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceSntMedian_CL",
+#                               data = d_trial_c,
+#                               Variable = d_trial_c$CoherenceSntMedian,
+#                               SkepticPrior = SkepticPrior,
+#                               MA_model = `1_order_Prior`,
+#                               Informed = TRUE,
+#                               level="Trial")
+# 
+# 
+# ht
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceSntMedian_CL2",
+                              data = d_trial_c2,
+                              Variable = d_trial_c2$CoherenceSntMedian,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = `1_order_Prior`,
+                              Informed = TRUE,
+                              level="Trial")
+
+
+ht
+
+
+
+
+```
+
+##19 Coherence Second-order
+
+```{r, eval = TRUE, echo= FALSE}
+
+
+Coherence10MeanDf <- ModelsByDiagnosis(Name = "CoherenceSnt2Median_N",
+                              data = d_trial,
+                              Variable = d_trial$CoherenceSnt2Median,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = ,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+
+
+```
+
+
+
+#21  Total words
+
+```{r,eval = , echo= FALSE }
+
+SimilarityMedianDf <- ModelsByDiagnosis(Name = "TotalWords_N",
+                              data = d_trial,
+                              Variable = d_trial$TotalWords,
+                              SkepticPrior = SkepticPrior,
+                              MA_model = SimilarityMean_Prior,
+                              Informed = FALSE,
+                              level="Trial")
+
+
+
+```
+
+
+# Functions
+
+```{r}
+
+# Functions used for the main analysis
+
+brmsFun <- function(Name,
+                    formula,
+                    data,
+                    family = gaussian,
+                    prior = SkepticPrior,
+                    iter = 10000,
+                    path = "models",
+                    stanvars = stanvar(placeholder, name = "placeholder")) {
+ 
+  
+  m <- brm(
+    formula,
+    data = data,
+    family = family,
+    iter = iter,
+    chains = 2,
+    cores = 2,
+    #backend = "cmdstanr",
+    #threads = threading(2),
+    prior = prior,
+    sample_prior = T,
+    #file = here(path, Name),
+    file = paste0(path, "/",Name),
+    control = list(adapt_delta = 0.99,
+                   max_treedepth = 20),
+    stanvars = stanvars,
+  )
+  
+  m <- add_criterion(m, 
+        criterion = c("loo", "bayes_R2"), 
+        #criterion = c("bayes_R2"), 
+        reloo = F, 
+        #file = here(path, Name))
+        file = paste0(path, "/",Name))
+  
+  return(m)
+}
+
+
+
+brmsFunMed <- function(Name,
+                    formula,
+                    data,
+                    family = gaussian,
+                    prior = SkepticPrior,
+                    iter = 10000,
+                    path = "models",
+                    stanvars = stanvar(placeholder, name = "placeholder")) {
+  
+  
+  m <- brm(
+    formula,
+    data = data,
+    family = family,
+    iter = iter,
+    chains = 2,
+    cores = 4,
+    backend = "cmdstanr",
+    threads = threading(2),
+    prior = prior,
+    sample_prior = T,
+    #file = here(path, Name),
+    file = paste0(path, "/",Name),
+    control = list(adapt_delta = 0.99,
+                   max_treedepth = 20),
+    stanvars = stanvars,
+  )
+  
+  m <- add_criterion(m, 
+                     criterion = c("loo", "bayes_R2"), 
+                     #criterion = c("bayes_R2"), 
+                     reloo = F, 
+                     #file = here(path, Name))
+                     file = paste0(path, "/",Name))
+  
+  return(m)
+}
+
+
+
+brmsFunSym<-function(Name, formula, data, family = gaussian, 
+                     prior = SkepticPrior, iter = 6000, 
+                     path = "models/symptoms",
+                     stanvars = stanvar(placeholder, name = "placeholder")){
+  m <- brm(formula, 
+           data = data,
+           family = family,
+           iter = iter, 
+           chains=2, 
+           cores = 2,
+           backend = "cmdstanr",
+           threads = threading(2),
+           prior = prior,
+           sample_prior = T,
+           #file = here("models","symptoms", Name),
+           file = paste0(path, "/", Name),
+           control= list(adapt_delta = 0.99,
+                         max_treedepth = 20),
+           stanvars = stanvars
+  )
+  
+  
+  m <- add_criterion(m, 
+                     criterion = c("loo", "bayes_R2"), 
+                     reloo = F, 
+                     #file = here("models","symptoms", Name))
+                     file = paste0(path, "/",Name))
+  return(m)
+}
+
+
+
+
+ResultsByString <- function(hyp, ER01, rng = 1){
+  
+  hypString <- paste0(
+    round(hyp$hypothesis$Estimate * rng,2),
+    " (",
+    round(hyp$hypothesis$CI.Lower * rng,2),
+    " ",
+    round(hyp$hypothesis$CI.Upper * rng,2),
+    ") ER = ",
+    round(hyp$hypothesis$Evid.Ratio,2)
+  )
+  if (hyp$hypothesis$Evid.Ratio < 3){
+    hypString <- paste0(hypString, " ER01 = ", round(ER01,2))
+  }
+  
+  return(hypString)
+  
+} 
+
+
+
+
+PlotByDiagnosis <- function(mod, name){  
+
+x <- pp_check(mod, ndraws = 100)
+t <- ggtitle(paste0("posterior_check_", name))
+plot(x + t)
+
+
+plot(hypothesis(mod, "LanguageD > 0"))
+plot(hypothesis(mod, "LanguageC > 0"))
+plot(hypothesis(mod, "LanguageG > 0"))
+plot(hypothesis(mod, "LanguageD:DiagnosisSCZ > 0"))
+plot(hypothesis(mod, "LanguageC:DiagnosisSCZ > 0"))
+plot(hypothesis(mod, "LanguageG:DiagnosisSCZ > 0"))
+
+
+plot(hypothesis(mod, "Intercept:groupDC > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupDS > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupCC > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupCS > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupGC > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupGS > 0", class="sd", group="NewID"))
+
+
+
+x <- posterior_samples(mod)
+y <- ggplot(x) + 
+  geom_density(aes(prior_sigma), color = "red")  +
+  geom_density(aes(sigma), color = "blue") +
+  theme_classic() 
+
+z <-  ggtitle(paste0("sigma_", name))
+plot(y + z)
+
+
+
+
+
+}
+
+
+PlotByMedication <- function(mod, name){ 
+  
+x <- pp_check(mod, ndraws = 100)
+t <- ggtitle(paste0("posterior_check_", name))
+plot(x + t)
+
+
+plot(hypothesis(mod, "LanguageD > 0"))
+plot(hypothesis(mod, "LanguageC > 0"))
+#plot(hypothesis(mod, "LanguageJ > 0"))
+plot(hypothesis(mod, "LanguageD:D2Rlow > 0"))
+plot(hypothesis(mod, "LanguageC:D2Rlow > 0"))
+plot(hypothesis(mod, "LanguageD:D2Rhigh > 0"))
+plot(hypothesis(mod, "LanguageC:D2Rhigh > 0"))
+#plot(hypothesis(mod, "LanguageJ:D2Rlow > 0"))
+
+plot(hypothesis(mod, "Intercept:groupC0 > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupC1 > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupD0 > 0", class="sd", group="NewID"))
+plot(hypothesis(mod, "Intercept:groupD1 > 0", class="sd", group="NewID"))
+#plot(hypothesis(mod, "Intercept:groupJ0 > 0", class="sd", group="NewID"))
+#plot(hypothesis(mod, "Intercept:groupJ1 > 0", class="sd", group="NewID"))
+
+plot(conditional_effects(mod),
+     points = T,
+     ask =F)
+
+
+x <- posterior_samples(mod)
+y <- ggplot(x) + 
+  geom_density(aes(prior_sigma), color = "red")  +
+  geom_density(aes(sigma), color = "blue") +
+  theme_classic() 
+
+z <-  ggtitle(paste0("sigma_", name))
+plot(y + z)
+
+
+
+
+
+}
+
+
+PlotBySymtpom <- function(mod, name){
+  
+  #posterior check
+  x <- pp_check(mod, ndraws = 100)
+  t <- ggtitle(paste0("posterior_check_", name))
+  plot(x + t)
+  
+  
+  # plot hypothesis
+  plot(hypothesis(mod, "LanguageD > 0"))
+  plot(hypothesis(mod, "LanguageC > 0"))
+  plot(hypothesis(mod, "LanguageD:moSymptom > 0", class="bsp"))
+  plot(hypothesis(mod, "LanguageC:moSymptom > 0", class="bsp"))
+  plot(hypothesis(mod, "Intercept:LanguageC > 0", class="sd", group="NewID"))
+  plot(hypothesis(mod, "Intercept:LanguageD > 0", class="sd", group="NewID"))
+  plot(hypothesis(mod, "sigma > 0", class=NULL))
+  
+  
+  #Visualization
+  
+  conditional_effects(mod)
+  plot(conditional_effects(mod),
+       points = T, ask = F)
+  
+  #sigma
+  x <- posterior_samples(mod)
+  ggplot(x) + 
+    geom_density(aes(prior_sigma), color = "red")  +
+    geom_density(aes(sigma), color = "blue") +
+    theme_classic() + ggtitle(paste0("sigma_", name))
+  
+  
+}
+
+
+
+ModelsByDiagnosis <- function(Name = "PitchMedian",
+                              data = d_trial, 
+                              Variable = d_trial$Pitch_Median,
+                              SkepticPrior = SkepticPrior, 
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE, 
+                              level = "Trial"){
+ 
+
+  
+  # Extracting Outcome variable
+  data$Outcome <- Variable
+  
+  data <- data %>% 
+    mutate(Outcome = Variable) %>%
+    subset(!is.na(Outcome))
+  
+  data$Outcome[data$Language=="D"] <- scale(data$Outcome[data$Language=="D"])
+  data$Outcome[data$Language=="C"] <- scale(data$Outcome[data$Language=="C"])
+  # data$Outcome[data$Language=="J"] <- scale(data$Outcome[data$Language=="J"])
+  data$Outcome[data$Language=="G"] <- scale(data$Outcome[data$Language=="G"])
+  
+  
+
+  
+  # Fitting Models
+ SkepticModelLanguage <- brmsFun(
+    Name = paste0(Name, "_SkepticModel_", level),
+    formula = Model_Language_f,
+    prior = SkepticPrior,
+    data = data, iter = 10000)
+
+  
+
+print("Priors, summary and plots of the skeptic model")
+print(prior_summary(SkepticModelLanguage))
+print(summary(SkepticModelLanguage))
+PlotByDiagnosis(SkepticModelLanguage,"SkepticModel")
+   
+
+SkepticModelGender <- brmsFun(
+  Name = paste0(Name,"_SkepticModelGender_",level),
+  formula = Model_Gender_f,
+  data = data)
+
+
+SkepticModelAge <- brmsFun(
+  Name = paste0(Name,"_SkepticModelAge_",level),
+  formula = Model_Age_f,
+  data = data)
+
+
+SkepticModelVerbIQ <- brmsFun(
+  Name = paste0(Name,"_SkepticModelVerbIQ_",level),
+  formula = Model_IQ_f,
+  data = data)
+
+
+
+data$TotalWords <- as.integer(data$TotalWords)
+
+
+data <- data %>% subset(!is.na(TotalWords) & !is.na(Outcome)) %>%
+  mutate(Language = as.factor(as.character(Language)))
+
+
+data$TotalWords[data$Language == "D"]  <- data$TotalWords[data$Language == "D"] - mean(data$TotalWords[data$Language == "D" & data$Diagnosis== "CT"], na.rm =T)
+
+
+data$TotalWords[data$Language == "D"]  <- data$TotalWords[data$Language == "D"] / sd(data$TotalWords[data$Language == "D" & data$Diagnosis== "CT"], na.rm =T)
+
+
+
+data$TotalWords[data$Language == "C"]  <- data$TotalWords[data$Language == "C"] - mean(data$TotalWords[data$Language == "C" & data$Diagnosis== "CT"], na.rm =T)
+
+
+data$TotalWords[data$Language == "C"]  <- data$TotalWords[data$Language == "C"] / sd(data$TotalWords[data$Language == "C" & data$Diagnosis== "CT"], na.rm =T)
+
+
+
+
+data$TotalWords[data$Language == "G"]  <- data$TotalWords[data$Language == "G"] - mean(data$TotalWords[data$Language == "G" & data$Diagnosis== "CT"], na.rm =T)
+
+
+data$TotalWords[data$Language == "G"]  <- data$TotalWords[data$Language == "G"] / sd(data$TotalWords[data$Language == "G" & data$Diagnosis== "CT"], na.rm =T)
+
+
+
+
+
+
+SkepticModelTotalWords  <- brmsFun(
+  Name = paste0(Name, "_SkepticModelTotWords_", level),
+  formula = Model_Length_f,
+  prior = SkepticPrior,
+  data = data, iter = 10000)
+
+
+SkepticModelEducation <- brmsFun(
+  Name = paste0(Name, "_SkepticModelEducation_", level),
+  formula = Model_Education_f,
+  prior = SkepticPrior,
+  data = data, iter = 10000)
+
+
+
+  ## First we report the effect of diagnosis
+  
+  xDK <- hypothesis(SkepticModelLanguage,"LanguageD:DiagnosisSCZ > 0")
+  xCH <- hypothesis(SkepticModelLanguage,"LanguageC:DiagnosisSCZ > 0")
+  # xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:DiagnosisSCZ > 0")
+   xGE <- hypothesis(SkepticModelLanguage,"LanguageG:DiagnosisSCZ > 0")
+  
+  
+  if (xDK$hypothesis$Estimate < 0){
+    xDK <- hypothesis(SkepticModelLanguage,"LanguageD:DiagnosisSCZ < 0")
+  }
+  if (xCH$hypothesis$Estimate < 0){
+    xCH <- hypothesis(SkepticModelLanguage,"LanguageC:DiagnosisSCZ < 0")
+  }
+  # if (xJP$hypothesis$Estimate < 0){
+  #   xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:DiagnosisSCZ < 0")
+  # }
+  if (xGE$hypothesis$Estimate < 0){
+    xGE <- hypothesis(SkepticModelLanguage,"LanguageG:DiagnosisSCZ < 0")
+  }
+  
+  ER01DK = hypothesis(SkepticModelLanguage,"LanguageD:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio
+  ER01CH = hypothesis(SkepticModelLanguage,"LanguageC:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio
+  # ER01JP = hypothesis(SkepticModelLanguage,"LanguageJ:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio  
+  ER01GE = hypothesis(SkepticModelLanguage,"LanguageG:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio  
+  # 
+  SkepticDK_string <- ResultsByString(xDK, ER01DK)
+  SkepticCH_string <- ResultsByString(xCH, ER01CH)
+  # SkepticJP_string <- ResultsByString(xJP, ER01JP)
+  SkepticGE_string <- ResultsByString(xGE, ER01GE)
+  
+
+  
+  
+   #We then look at whether gendewr and age  moderators have an impact
+
+    xDK <- hypothesis(SkepticModelGender,"LanguageD:GenderF:DiagnosisSCZ > LanguageD:GenderM:DiagnosisSCZ")
+   if (xDK$hypothesis$Estimate < 0){
+    xDK <- hypothesis(SkepticModelGender,"LanguageD:GenderF:DiagnosisSCZ < LanguageD:GenderM:DiagnosisSCZ")
+  }
+  ER01DK = hypothesis(SkepticModelGender,"LanguageD:GenderF:DiagnosisSCZ = LanguageD:GenderM:DiagnosisSCZ")$hypothesis$Evid.Ratio
+
+  xCH <- hypothesis(SkepticModelGender,"LanguageC:GenderF:DiagnosisSCZ > LanguageC:GenderM:DiagnosisSCZ")
+  if (xCH$hypothesis$Estimate < 0){
+    xCH <- hypothesis(SkepticModelGender,"LanguageC:GenderF:DiagnosisSCZ < LanguageC:GenderM:DiagnosisSCZ")
+  }
+  ER01CH = hypothesis(SkepticModelGender,"LanguageC:GenderF:DiagnosisSCZ = LanguageC:GenderM:DiagnosisSCZ")$hypothesis$Evid.Ratio
+
+  # xJP <- hypothesis(SkepticModelGender,"LanguageJ:GenderF:DiagnosisSCZ > LanguageJ:GenderM:DiagnosisSCZ")
+  # if (xJP$hypothesis$Estimate < 0){
+  #   xJP <- hypothesis(SkepticModelGender,"LanguageJ:GenderF:DiagnosisSCZ < LanguageJ:GenderM:DiagnosisSCZ")
+  # }
+  #  ER01JP = hypothesis(SkepticModelGender,"LanguageJ:GenderF:DiagnosisSCZ = LanguageJ:GenderM:DiagnosisSCZ")$hypothesis$Evid.Ratio
+  #
+  #
+   xGE <- hypothesis(SkepticModelGender,"LanguageG:GenderF:DiagnosisSCZ > LanguageG:GenderM:DiagnosisSCZ")
+   if (xGE$hypothesis$Estimate < 0){
+     xGE <- hypothesis(SkepticModelGender,"LanguageG:GenderF:DiagnosisSCZ < LanguageG:GenderM:DiagnosisSCZ")
+   }
+   ER01GE = hypothesis(SkepticModelGender,"LanguageG:GenderF:DiagnosisSCZ = LanguageG:GenderM:DiagnosisSCZ")$hypothesis$Evid.Ratio
+
+
+  SkepticDK_Sex_string <- ResultsByString(xDK, ER01DK)
+  SkepticCH_Sex_string <- ResultsByString(xCH, ER01CH)
+  # SkepticJP_Sex_string <- ResultsByString(xJP, ER01JP)
+  SkepticGE_Sex_string <- ResultsByString(xGE, ER01GE)
+
+  #
+  #Age
+
+  xDK <- hypothesis(SkepticModelAge,"LanguageD:DiagnosisSCZ:Age > 0")
+  if (xDK$hypothesis$Estimate < 0){
+    xDK <- hypothesis(SkepticModelAge,"LanguageD:DiagnosisSCZ:Age < 0")
+  }
+  BF01DK = hypothesis(SkepticModelAge,"LanguageD:DiagnosisSCZ:Age = 0")$hypothesis$Evid.Ratio
+
+
+  xCH <- hypothesis(SkepticModelAge,"LanguageC:DiagnosisSCZ:Age > 0")
+  if (xCH$hypothesis$Estimate < 0){
+    xCH <- hypothesis(SkepticModelAge,"LanguageC:DiagnosisSCZ:Age < 0")
+  }
+  BF01CH = hypothesis(SkepticModelAge,"LanguageC:DiagnosisSCZ:Age = 0")$hypothesis$Evid.Ratio
+
+
+  # xJP <- hypothesis(SkepticModelAge,"LanguageJ:DiagnosisSCZ:Age > 0")
+  # if (xJP$hypothesis$Estimate < 0){
+  #   xJP <- hypothesis(SkepticModelAge,"LanguageJ:DiagnosisSCZ:Age < 0")
+  # }
+  # BF01JP = hypothesis(SkepticModelAge,"LanguageJ:DiagnosisSCZ:Age = 0")$hypothesis$Evid.Ratio
+  #
+  #
+  xGE <- hypothesis(SkepticModelAge,"LanguageG:DiagnosisSCZ:Age > 0")
+  if (xGE$hypothesis$Estimate < 0){
+    xGE <- hypothesis(SkepticModelAge,"LanguageG:DiagnosisSCZ:Age < 0")
+  }
+  BF01GE = hypothesis(SkepticModelAge,"LanguageG:DiagnosisSCZ:Age = 0")$hypothesis$Evid.Ratio
+
+
+  SkepticDK_Age_string <- ResultsByString(xDK, BF01DK)
+  SkepticCH_Age_string <- ResultsByString(xCH, BF01CH)
+  SkepticGE_Age_string <- ResultsByString(xGE, BF01GE)
+
+  # IQ
+
+
+  xDK <- hypothesis(SkepticModelVerbIQ,"LanguageD:DiagnosisSCZ:VerbIQ > 0")
+  if (xDK$hypothesis$Estimate < 0){
+    xDK <- hypothesis(SkepticModelVerbIQ,"LanguageD:DiagnosisSCZ:VerbIQ < 0")
+  }
+  BF01DK = hypothesis(SkepticModelVerbIQ,"LanguageD:DiagnosisSCZ:VerbIQ = 0")$hypothesis$Evid.Ratio
+
+
+  xCH <- hypothesis(SkepticModelVerbIQ,"LanguageC:DiagnosisSCZ:VerbIQ > 0")
+  if (xCH$hypothesis$Estimate < 0){
+    xCH <- hypothesis(SkepticModelVerbIQ,"LanguageC:DiagnosisSCZ:VerbIQ < 0")
+  }
+  BF01CH = hypothesis(SkepticModelVerbIQ,"LanguageC:DiagnosisSCZ:VerbIQ = 0")$hypothesis$Evid.Ratio
+
+
+  # xJP <- hypothesis(SkepticModelVerbIQ,"LanguageJ:DiagnosisSCZ:VerbIQ > 0")
+  # if (xJP$hypothesis$Estimate < 0){
+  #   xJP <- hypothesis(SkepticModelVerbIQ,"LanguageJ:DiagnosisSCZ:VerbIQ < 0")
+  # }
+  # BF01JP = hypothesis(SkepticModelVerbIQ,"LanguageJ:DiagnosisSCZ:VerbIQ = 0")$hypothesis$Evid.Ratio
+
+
+  xGE <- hypothesis(SkepticModelVerbIQ,"LanguageG:DiagnosisSCZ:VerbIQ > 0")
+  if (xGE$hypothesis$Estimate < 0){
+    xGE <- hypothesis(SkepticModelVerbIQ,"LanguageG:DiagnosisSCZ:VerbIQ < 0")
+  }
+  BF01GE = hypothesis(SkepticModelVerbIQ,"LanguageG:DiagnosisSCZ:VerbIQ = 0")$hypothesis$Evid.Ratio
+
+
+  SkepticDK_VerbIQ_string <- ResultsByString(xDK, BF01DK)
+  SkepticCH_VerbIQ_string <- ResultsByString(xCH, BF01CH)
+  SkepticGE_VerbIQ_string <- ResultsByString(xGE, BF01GE)
+
+
+
+  # Length
+
+  # Total words
+
+
+  xDK <- hypothesis(SkepticModelTotalWords,"LanguageD:DiagnosisSCZ:TotalWords > 0")
+  if (xDK$hypothesis$Estimate < 0){
+    xDK <- hypothesis(SkepticModelTotalWords,"LanguageD:DiagnosisSCZ:TotalWords < 0")
+  }
+  BF01DK = hypothesis(SkepticModelTotalWords,"LanguageD:DiagnosisSCZ:TotalWords = 0")$hypothesis$Evid.Ratio
+
+
+  xCH <- hypothesis(SkepticModelTotalWords,"LanguageC:DiagnosisSCZ:TotalWords > 0")
+  if (xCH$hypothesis$Estimate < 0){
+    xCH <- hypothesis(SkepticModelTotalWords,"LanguageC:DiagnosisSCZ:TotalWords < 0")
+  }
+  BF01CH = hypothesis(SkepticModelTotalWords,"LanguageC:DiagnosisSCZ:TotalWords = 0")$hypothesis$Evid.Ratio
+
+
+
+  xGE <- hypothesis(SkepticModelTotalWords,"LanguageG:DiagnosisSCZ:TotalWords > 0")
+  if (xGE$hypothesis$Estimate < 0){
+    xGE <- hypothesis(SkepticModelTotalWords,"LanguageG:DiagnosisSCZ:TotalWords < 0")
+  }
+  BF01GE = hypothesis(SkepticModelTotalWords,"LanguageG:DiagnosisSCZ:TotalWords = 0")$hypothesis$Evid.Ratio
+
+
+  SkepticDK_TotalWords_string <- ResultsByString(xDK, BF01DK)
+  SkepticCH_TotalWords_string <- ResultsByString(xCH, BF01CH)
+  SkepticGE_TotalWords_string <- ResultsByString(xGE, BF01GE)
+
+
+
+  #  Education
+
+
+  xDK <- hypothesis(SkepticModelEducation,"LanguageD:DiagnosisSCZ:Education > 0")
+  if (xDK$hypothesis$Estimate < 0){
+    xDK <- hypothesis(SkepticModelEducation,"LanguageD:DiagnosisSCZ:Education < 0")
+  }
+  BF01DK = hypothesis(SkepticModelEducation,"LanguageD:DiagnosisSCZ:Education = 0")$hypothesis$Evid.Ratio
+
+
+  xCH <- hypothesis(SkepticModelEducation,"LanguageC:DiagnosisSCZ:Education > 0")
+  if (xCH$hypothesis$Estimate < 0){
+    xCH <- hypothesis(SkepticModelEducation,"LanguageC:DiagnosisSCZ:Education < 0")
+  }
+  BF01CH = hypothesis(SkepticModelEducation,"LanguageC:DiagnosisSCZ:Education = 0")$hypothesis$Evid.Ratio
+
+
+
+  xGE <- hypothesis(SkepticModelEducation,"LanguageG:DiagnosisSCZ:Education > 0")
+  if (xGE$hypothesis$Estimate < 0){
+    xGE <- hypothesis(SkepticModelEducation,"LanguageG:DiagnosisSCZ:Education < 0")
+  }
+  BF01GE = hypothesis(SkepticModelEducation,"LanguageG:DiagnosisSCZ:Education = 0")$hypothesis$Evid.Ratio
+
+
+  SkepticDK_Education_string <- ResultsByString(xDK, BF01DK)
+  SkepticCH_Education_string <- ResultsByString(xCH, BF01CH)
+  SkepticGE_Education_string <- ResultsByString(xGE, BF01GE)
+
+  
+  
+  
+  
+  ## Now onto making a table with the results  
+  
+  HypTable <- data.frame(
+    Labels = c("", 
+               paste0(Name, "_", level), 
+               "Skeptical DK", 
+               "Skeptical GE",
+               "Skeptical CH"
+               ),
+               # "Skeptical JP",
+               # ), #, "MA", "Informed DK", "Informed CH"
+    Diagnosis = c ("Group (SCZ - CT)", 
+                   "", 
+                   SkepticDK_string,
+                   SkepticGE_string,
+                   SkepticCH_string
+                   # SkepticJP_string,
+                    ),
+     Sex = c ("Biological sex (M - F)",
+              "",
+              SkepticDK_Sex_string,
+              SkepticGE_Sex_string,
+              SkepticCH_Sex_string
+              # SkepticJP_Sex_string,
+              ),
+     Age = c ("Age",
+             "",
+              SkepticDK_Age_string,
+              SkepticGE_Age_string,
+              SkepticCH_Age_string
+              # SkepticJP_Age_string,
+              ),
+     IQ = c ("IQ",
+             "",
+             SkepticDK_VerbIQ_string,
+             SkepticGE_VerbIQ_string,
+             SkepticCH_VerbIQ_string
+             # SkepticJP_VerbIQ_string,
+             ),
+    Length = c ("Length",
+            "",
+            SkepticDK_TotalWords_string,
+            SkepticGE_TotalWords_string,
+            SkepticCH_TotalWords_string
+            # SkepticJP_VerbIQ_string,
+    ),
+    Education  = c ("Education",
+                "",
+                SkepticDK_Education_string,
+                SkepticGE_Education_string,
+                SkepticCH_Education_string
+                # SkepticJP_VerbIQ_string,
+    )
+    
+    )
+
+
+
+  
+  if (Informed) {
+    
+    gc()
+    
+    MA <- MA_model
+    MA_string <- paste0(MA$Mean, " (", MA$CI_l, " ", MA$CI_u, ")")
+    
+    xm <- MA$Mean
+    xs <- MA$Sd
+    
+    InformedPrior <- c(
+      prior(normal(xm, xs), class = b),
+      prior(normal(0, .7), class = sd) ,
+      prior(normal(0, .5), class = b, coef = LanguageD),
+      prior(normal(0, .5), class = b, coef = LanguageC),
+      # prior(normal(0, .5), class = b, coef = LanguageJ),
+      prior(normal(0, .5), class = b, coef = LanguageG),
+      prior(normal(0.3, 0.1), class = sigma)
+    )
+    
+    stanvars <- stanvar(xm, name = 'xm') + stanvar(xs, name = 'xs')
+    
+    InformedModel <-
+      brmsFun(
+        Name = paste0(Name, "_InformedModel_", level),
+        formula = Model_Language_f,
+        data = data,
+        prior = InformedPrior,
+        stanvars = stanvars
+      )
+
+    print("Priors, summary and plots of the informed model")
+    print(summary(InformedModel))
+    print(prior_summary(InformedModel))
+    PlotByDiagnosis(InformedModel, "InformedModel")
+
+    print("Model comparison with the skeptic model")
+    print(loo_compare(SkepticModelLanguage, InformedModel))
+    print(loo_model_weights(SkepticModelLanguage, InformedModel))
+
+    wei <- loo_model_weights(SkepticModelLanguage, InformedModel)
+    
+    wei1<- as.data.frame(wei[1])
+    wei2<- as.data.frame(wei[2])
+    
+    #str_weight <- paste0(rownames(wei), " ",  round(wei[1],2))
+    
+    if (wei2 >  wei1) (
+      
+      str_weight <- paste0(rownames(wei2), " ",  round(wei2[1],2))
+      
+    ) else (
+      
+      str_weight <- paste0(rownames(wei1), " ",  round(wei1[1],2))
+    )
+  
+
+    
+    ## First we report the effect of diagnosis
+    xDK <- hypothesis(InformedModel, "LanguageD:DiagnosisSCZ > 0")
+    xCH <- hypothesis(InformedModel, "LanguageC:DiagnosisSCZ > 0")
+    # xJP <- hypothesis(InformedModel, "LanguageJ:DiagnosisSCZ > 0")
+    xGE <- hypothesis(InformedModel, "LanguageG:DiagnosisSCZ > 0")
+    
+    if (xDK$hypothesis$Estimate < 0) {
+      xDK <- hypothesis(InformedModel, "LanguageD:DiagnosisSCZ < 0")
+    }
+    if (xCH$hypothesis$Estimate < 0) {
+      xCH <- hypothesis(InformedModel, "LanguageC:DiagnosisSCZ < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0) {
+    #   xJP <- hypothesis(InformedModel, "LanguageJ:DiagnosisSCZ < 0")
+    # }
+    if (xGE$hypothesis$Estimate < 0) {
+      xGE <- hypothesis(InformedModel, "LanguageG:DiagnosisSCZ < 0")
+    }
+    
+    ER01DK = hypothesis(InformedModel, "LanguageD:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio
+    ER01CH = hypothesis(InformedModel, "LanguageC:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio
+    # ER01JP = hypothesis(InformedModel, "LanguageJ:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio
+    ER01GE = hypothesis(InformedModel, "LanguageG:DiagnosisSCZ = 0")$hypothesis$Evid.Ratio
+    
+    InformedDK_string <- ResultsByString(xDK, ER01DK)
+    InformedCH_string <- ResultsByString(xCH, ER01CH)
+    # InformedJP_string <- ResultsByString(xJP, ER01JP)
+    InformedGE_string <- ResultsByString(xGE, ER01GE)
+    
+   
+    
+    HypTable <- data.frame(
+         Labels = c(
+           "",
+           paste0(Name, "_", level),
+           "MA Priors",
+           "Skeptical DK",
+           "Skeptical GE",
+           "Skeptical CH",
+           # "Skeptical JP",
+           "Informed DK",
+           "Informed GE",
+           "Informed CH",
+           "Stacking weight"
+           # "Informed JP",
+         ),
+        
+         Diagnosis = c (
+           "Group (SCZ - CT)",
+           "",
+           MA_string,
+           SkepticDK_string,
+           SkepticGE_string,
+           SkepticCH_string,
+           # SkepticJP_string,
+           InformedDK_string,
+           InformedGE_string,   
+           InformedCH_string,
+           str_weight
+           # InformedJP_string,
+         )
+         ,
+         Sex = c (
+           "Biological sex (M - F)",
+           "",
+           "",
+           SkepticDK_Sex_string,
+           SkepticGE_Sex_string,
+           SkepticCH_Sex_string,
+           # SkepticJP_Sex_string,
+           "NA", "NA", "NA", "NA"
+         ),
+         Age = c ("Age",
+                  "",
+                  "",
+                  SkepticDK_Age_string,
+                  SkepticGE_Age_string,
+                  SkepticCH_Age_string,
+                  # SkepticJP_Age_string,
+                  "NA", "NA",  "NA", "NA"
+                  ),
+         IQ = c ("IQ",
+                 "",
+                 "",
+                 SkepticDK_VerbIQ_string,
+                 SkepticGE_VerbIQ_string,
+                 SkepticCH_VerbIQ_string,
+                 # SkepticJP_VerbIQ_string,
+                 "NA", "NA",  "NA", "NA"),
+         Education  = c ("Education",
+                         "",
+                         "",
+                         SkepticDK_Education_string,
+                         SkepticGE_Education_string,
+                         SkepticCH_Education_string,
+                         "NA", "NA",  "NA", "NA"
+                         # SkepticJP_VerbIQ_string,
+         ),
+         Length = c ("Length",
+                     "",
+                     "",
+                     SkepticDK_TotalWords_string,
+                     SkepticGE_TotalWords_string,
+                     SkepticCH_TotalWords_string,
+                     "NA", "NA",  "NA", "NA"
+                     # SkepticJP_VerbIQ_string,
+         )
+         )
+
+
+    
+    
+   
+    
+    post <- posterior_samples(SkepticModelLanguage) %>%
+      select(
+        SkepticPrior = prior_b,
+        SkepticDK = "b_LanguageD:DiagnosisSCZ",
+        SkepticCH = "b_LanguageC:DiagnosisSCZ",
+        # SkepticJP = "b_LanguageJ:DiagnosisSCZ",
+        SkepticGE = "b_LanguageG:DiagnosisSCZ"
+      )
+    
+    post1 <- posterior_samples(InformedModel) %>%
+      select(
+        InformedPrior = "prior_b_LanguageD:DiagnosisSCZ",
+        InformedDK = "b_LanguageD:DiagnosisSCZ",
+        InformedCH = "b_LanguageC:DiagnosisSCZ",
+        # InformedJP = "b_LanguageJ:DiagnosisSCZ",
+        InformedGE = "b_LanguageG:DiagnosisSCZ"
+      )
+    
+    post2 <- cbind(post, post1) %>%
+      gather(parameter, value, SkepticPrior:InformedGE, factor_key = TRUE)
+    
+    PriorPlot <- post2 %>%
+      subset(parameter %in% c("InformedPrior", "SkepticPrior")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    DanishPlot <- post2 %>%
+      subset(parameter %in% c("InformedDK", "SkepticDK")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    ChinesePlot <- post2 %>%
+      subset(parameter %in% c("InformedCH", "SkepticCH")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    # JapanesePlot <- post2 %>%
+    #   subset(parameter %in% c("InformedJP", "SkepticJP")) %>%
+    #   ggplot(aes(value, fill=parameter)) +
+    #   geom_density(alpha=0.3) +
+    #   geom_vline(xintercept = 0, linetype = "dashed") +
+    #   xlim(-2,2) +
+    #   ylim(0, 5) +
+    #   theme_classic()
+    
+    GermanPlot <- post2 %>%
+      subset(parameter %in% c("InformedGE", "SkepticGE")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    #library(patchwork)
+    x <- PriorPlot / DanishPlot / ChinesePlot  / GermanPlot
+    print(x)
+    
+   # JapanesePlot
+    
+    # post2$parameter <- factor( post2$parameter , levels = c("SkepticDK", "InformedDK", "SkepticCH", "InformedCH", "SkepticJP", "InformedJP", "SkepticGE", "InformedGE", "SkepticPrior", "InformedPrior"))
+    # str(post2$parameter )
+    # 
+    # ggplot(post2, aes(x = value, y = parameter, fill = parameter)) +
+    #   geom_density_ridges(scale = 2) + 
+    #   scale_fill_cyclical(
+    #     name = "Priors",
+    #     values = c("BottleRocket1", "#440154AA"), 
+    #     labels = c("SkepticDK" = "Skeptic", "InformedDK" = "Informed"),
+    #     guide = "legend") + theme_classic() 
+    
+    
+    
+    # ggplot(post2, aes(x = value, y = parameter, fill = parameter)) +
+    #   geom_density_ridges(scale = 2) + 
+    #   scale_fill_cyclical(
+    #     name = "Priors",
+    #     values = c("#fde725AA", "#440154AA"), 
+    #     labels = c("SkepticDK" = "Skeptic", "InformedDK" = "Informed"),
+    #     guide = "legend") + theme_classic() 
+    # 
+    # ggplot(post2, aes(x = value, y = parameter, fill = parameter)) +
+    #   geom_density_ridges(scale = 2) + 
+    #   scale_fill_cyclical(
+    #     name = "Priors",
+    #     values = c("#fde725AA", "#55c667AA"), 
+    #     labels = c("SkepticDK" = "Skeptic", "InformedDK" = "Informed"),
+    #     guide = "legend") + theme_classic()  
+    # 
+    # 
+    # ggplot(post2, aes(x = value, y = parameter, fill = parameter)) +
+    #   geom_density_ridges(scale = 2) + 
+    #   scale_fill_cyclical(
+    #     name = "Priors",
+    #     values = c("#FDE725AA", "#3CBB75AA"), 
+    #     labels = c("SkepticDK" = "Skeptic", "InformedDK" = "Informed"),
+    #     guide = "legend") + theme_classic()  
+    # 
+    # 
+    # ggplot(post2, aes(x = value, y = parameter, fill = parameter)) +
+    #   geom_density_ridges(scale = 2) + 
+    #   scale_fill_cyclical(
+    #     name = "Priors",
+    #     values = c("#440154AA", "#3CBB75AA"), 
+    #     labels = c("SkepticDK" = "Skeptic", "InformedDK" = "Informed"),
+    #     guide = "legend") + theme_classic()  
+    # 
+    
+    
+    
+    
+    CompPlot <- ggplot(post2, aes(value, parameter)) +
+      geom_density_ridges() +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      theme_classic()
+    print(CompPlot)
+    
+  }
+  
+  print("Estimates in a table")
+  #print(kable(HypTable))
+  #formattable(HypTable)
+  ht <- formattable(HypTable)
+  assign("ht", ht, envir = .GlobalEnv)
+  #return(HypTable)
+  #a <- SkepticModelLanguage
+
+  
+}
+
+
+
+
+
+
+
+ModelsBySymptom <- function(Name = "TotalPitchMedian",
+                            data = d_trial_SZ,
+                            Outcome = d_trial_SZ$PitchMedianS,
+                            Symptom = d_trial_SZ$AdosTotal,
+                            SkepticPrior = SkepticPrior,
+                            MA_model = PitchMean_BayesianPrior,
+                            Informed = TRUE,
+                            level = "Trial") {
+
+
+
+  
+
+Name = "Coherence5Mean_Sans_Tot"
+data =  d_trial_SZ
+Outcome = d_trial_SZ$Coherence5Median
+Symptom = d_trial_SZ$Sans_Tot
+SkepticPrior = SkepticPrior
+MA_model = `negative symptoms and mean pitch_BayesianPrior`
+Informed = FALSE
+level="Trial"
+
+
+  print(Name)
+  
+  
+  # Extracting Outcome variable
+  
+  data$Outcome <- Outcome
+  
+  data$Outcome[data$Language == "D"] <- (data$Outcome[data$Language == "D"] - min(data$Outcome[data$Language == "D"], na.rm = T))
+  
+  
+  data$Outcome[data$Language == "D"] <- data$Outcome[data$Language == "D"] / (max(data$Outcome[data$Language == "D"], na.rm = TRUE))
+  
+  
+  data$Outcome[data$Language == "C"] <- (data$Outcome[data$Language == "C"] - min(data$Outcome[data$Language == "C"], na.rm = T))
+  
+  
+  data$Outcome[data$Language == "C"] <- data$Outcome[data$Language == "C"] / (max(data$Outcome[data$Language == "C"], na.rm = TRUE))
+  
+  # 
+  # data$Outcome[data$Language == "J"] <- (data$Outcome[data$Language == "J"] - min(data$Outcome[data$Language == "J"], na.rm = T))
+  # 
+  # 
+  # data$Outcome[data$Language == "J"] <- data$Outcome[data$Language == "J"] / (max(data$Outcome[data$Language == "J"], na.rm = TRUE))
+  # 
+  # 
+  
+  data$Outcome[data$Language == "G"] <- (data$Outcome[data$Language == "G"] - min(data$Outcome[data$Language == "G"], na.rm = T))
+  
+  
+  data$Outcome[data$Language == "G"] <- data$Outcome[data$Language == "G"] / (max(data$Outcome[data$Language == "G"], na.rm = TRUE))
+  
+ 
+ 
+
+  data$Symptom <- Symptom
+  data$Symptom <- as.integer(data$Symptom)
+  data <- data %>% subset(!is.na(Symptom) & !is.na(Outcome)) %>%
+    mutate(Language = as.factor(as.character(Language)))
+  
+  ## Priors
+  rng <- range(data$Symptom, na.rm = T)[2]
+  
+  # adjust prior
+  
+  xm = (.3 / rng) * 2
+  
+  
+  if ("D" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                       prior(normal(0, xm), class=b, coef = "LanguageD:moSymptom"),
+                       prior(normal(0, .1), class = sd),
+                       prior(normal(0.3, 0.1), class = sigma))
+  }
+  if ("C" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                       prior(normal(0, xm), class=b, coef = "LanguageC:moSymptom"),
+                       prior(normal(0, .1), class = sd),
+                       prior(normal(0.3, 0.1), class = sigma))
+  }
+  if ("D" %in% unique(data$Language) & "C" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                       prior(normal(0, xm), class=b, coef = "LanguageD:moSymptom"),
+                       prior(normal(0, xm), class=b, coef = "LanguageC:moSymptom"),
+                       prior(normal(0, .1), class = sd),
+                       prior(normal(0.3, 0.1), class = sigma))
+    
+  }
+  
+  
+  
+  
+  if ("D" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                      prior(normal(0, 0.03), class=b, coef = "LanguageD:moSymptom"),
+                      prior(normal(0, .1), class = sd),
+                      prior(normal(0.3, 0.1), class = sigma))
+  }
+  if ("C" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                      prior(normal(0, 0.03), class=b, coef = "LanguageC:moSymptom"),
+                      prior(normal(0, .1), class = sd),
+                      prior(normal(0.3, 0.1), class = sigma))
+  }
+  if ("D" %in% unique(data$Language) & "C" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                      prior(normal(0, 0.03), class=b, coef = "LanguageD:moSymptom"),
+                      prior(normal(0, 0.03), class=b, coef = "LanguageC:moSymptom"),
+                      prior(normal(0, .1), class = sd),
+                      prior(normal(0.3, 0.1), class = sigma))
+  }
+
+  
+  
+  
+  stanvars <-
+    stanvar(xm, name = 'xm')
+  
+
+  
+
+  SkepticModelLanguage <-
+    brmsFunSym(
+      Name = paste0(Name, "_SkepticModel_CL2", level),
+      formula = SymptomVoice_Language_f,
+      data = data,
+      prior = SkepticPrior,
+      stanvars = stanvars
+    )
+  
+  print("Priors, summary and plots of the skeptic model")
+  print(prior_summary(SkepticModelLanguage))
+  print(summary(SkepticModelLanguage))
+
+  PlotBySymtpom(SkepticModelLanguage, "Skeptic_model")
+
+  
+  prior <- 
+    brm(
+      SymptomVoice_Language_f, 
+      data = data,
+      family = gaussian,
+      prior = SkepticPrior,
+      sample_prior = "only", 
+      iter = 5000,
+      warmup = 1000,
+      backend = "cmdstanr", 
+      threads = threading(2),
+      cores = 2,
+      chains = 2,
+      file = "symtpom_prior",
+      #refit = "on_change",
+      control = list(adapt_delta = 0.99, max_treedepth = 20))
+  
+  
+  pp_check(prior, ndraws = 100)
+
+  ## First we report the effect of diagnosis
+  xDK <- hypothesis(SkepticModelLanguage, "LanguageD:moSymptom > 0", class = "bsp")
+  xCH <- hypothesis(SkepticModelLanguage, "LanguageC:moSymptom > 0", class = "bsp")
+  
+  if (xDK$hypothesis$Estimate < 0) {
+    xDK <- hypothesis(SkepticModelLanguage, "LanguageD:moSymptom < 0", class = "bsp")
+  }
+  
+  if (xCH$hypothesis$Estimate < 0) {
+    xCH <- hypothesis(SkepticModelLanguage, "LanguageC:moSymptom < 0", class = "bsp")
+  }
+  
+  ER01DK = hypothesis(SkepticModelLanguage, "LanguageD:moSymptom = 0", class =
+                        "bsp")$hypothesis$Evid.Ratio
+  ER01CH = hypothesis(SkepticModelLanguage, "LanguageC:moSymptom = 0", class =
+                        "bsp")$hypothesis$Evid.Ratio
+  
+  SkepticDK_string <- ResultsByString(xDK, ER01DK, rng = rng)
+  SkepticCH_string <- ResultsByString(xCH, ER01CH, rng = rng)
+  
+  # DK > CH
+  x1 <- hypothesis(SkepticModelLanguage,
+               "LanguageD:moSymptom > LanguageC:moSymptom",
+               class = "bsp")
+  if (x1$hypothesis$Estimate < 0) {
+    x1 <-
+      hypothesis(SkepticModelLanguage,
+                 "LanguageD:moSymptom < LanguageC:moSymptom",
+                 class = "bsp")
+  }
+  ER01 = hypothesis(SkepticModelLanguage,
+                    "LanguageD:moSymptom = LanguageC:moSymptom",
+                    class = "bsp")$hypothesis$Evid.Ratio
+  
+ 
+  
+  HypTable <- data.frame(
+    Labels = c("", Name, "Skeptical DK", 
+               "Skeptical CH"
+               #"Contrast DK-CH"
+               ),
+    #"Skeptical JP", , "Contrast DK-JP", "Contrast CH-JP"), #, "MA", "Informed DK", "Informed CH"
+    Diagnosis = c (
+      "Group (SCZ - CT)",
+      "",
+      SkepticDK_string,
+      SkepticCH_string
+      # SkepticDK_CH_Contrast_String
+    )
+    # SkepticJP_string, SkepticDK_JP_Contrast_String, SkepticCH_JP_Contrast_String),
+    # Sex = c ("Biological sex (M - F)", 
+    #          "", 
+    #          "", 
+    #          "") 
+    # SkepticJP_Sex_string "",""
+    #  Age = c ("Age", "", SkepticDK_Age_string, SkepticCH_Age_string) SkepticDK_Sex_string, SkepticCH_Sex_string
+  )
+  
+  
+  if (Informed) {
+    
+
+    
+    MA <- MA_Bayesreport(MA_model)
+    
+    MA_string <-
+      paste0(MA$Mean, " (", MA$CI_l, " ", MA$CI_u, ")")
+    
+    xm <- MA$Mean
+    xs <- MA$Sd
+    xm2 <- xm / rng
+    xs2 <- (xs / rng) * 3
+    
+    InformedPrior <- c(
+      prior(normal(xm2, xs2), class = b),
+      prior(normal(0, 0.1), class = sd) ,
+      prior(normal(0.5, .3), class = b, coef = LanguageD),
+      prior(normal(0.5, .3), class = b, coef = LanguageC),
+      prior(normal(0, .3), class = sigma)
+    )
+    
+    stanvars <-
+      stanvar(xm2, name = 'xm2') + stanvar(xs2, name = 'xs2')
+    
+    InformedModelLanguage <-
+      brmsFunSym(
+        Name = paste0(Name, "_InformedModel_", level),
+        formula = SymptomVoice_Language_f,
+        data = data,
+        prior = InformedPrior,
+        stanvars = stanvars
+      )
+    
+
+    
+
+    print("Priors, summary and plots of the informed model")
+    print(prior_summary(InformedModelLanguage))
+    print(summary(InformedModelLanguage))
+
+    PlotBySymtpom(InformedModelLanguage, "Informed_model")
+    
+    
+    # Model comparison
+    
+    
+    print("Model comparison with the skeptic model")
+    print(loo_compare(SkepticModelLanguage, InformedModelLanguage))
+    print(loo_model_weights(SkepticModelLanguage, InformedModelLanguage))
+    
+
+    
+    ## First we report the effect of diagnosis
+    
+    xDK <- hypothesis(InformedModelLanguage, "LanguageD:moSymptom > 0", class = "bsp")
+    xCH <- hypothesis(InformedModelLanguage, "LanguageC:moSymptom > 0", class = "bsp")
+    
+    if (xDK$hypothesis$Estimate < 0) {
+      xDK <- hypothesis(InformedModelLanguage, "LanguageD:moSymptom < 0", class = "bsp")
+    }
+    if (xCH$hypothesis$Estimate < 0) {
+      xCH <- hypothesis(InformedModelLanguage, "LanguageC:moSymptom < 0", class = "bsp")
+    }
+    
+    ER01DK = hypothesis(InformedModelLanguage, "LanguageD:moSymptom = 0", class =
+                          "bsp")$hypothesis$Evid.Ratio
+    ER01CH = hypothesis(InformedModelLanguage, "LanguageC:moSymptom = 0", class =
+                          "bsp")$hypothesis$Evid.Ratio
+    
+    InformedDK_string <- ResultsByString(xDK, ER01DK, rng = rng)
+    InformedCH_string <- ResultsByString(xCH, ER01CH, rng = rng)
+    
+    # DK > CH
+    x1 <- hypothesis(InformedModelLanguage,
+                 "LanguageD:moSymptom > LanguageC:moSymptom",
+                 class = "bsp")
+    if (x1$hypothesis$Estimate < 0) {
+      x1 <- hypothesis(InformedModelLanguage,
+                   "LanguageD:moSymptom < LanguageC:moSymptom",
+                   class = "bsp")
+    }
+    ER01 = hypothesis(InformedModelLanguage,
+                      "LanguageD:moSymptom = LanguageC:moSymptom",
+                      class = "bsp")$hypothesis$Evid.Ratio
+    
+    # Report contrasts
+    #DK >CH
+    InformedDK_CH_Contrast_String <- ResultsByString(x1, ER01, rng = rng)
+    
+    HypTable <- data.frame(
+      Labels = c(
+        "",
+        Name,
+        "MA Priors",
+        "Skeptical DK",
+        "Skeptical CH",
+        #"Contrast DK-CH",
+        "Informed DK",
+        "Informed CH"
+        #"Contrast DK-CH"
+      ),
+      #"Skeptical JP","Contrast DK-JP", "Contrast CH-JP","Contrast DK-JP", "Contrast CH-JP" "Informed JP",
+      Diagnosis = c (
+        "Group (SCZ - CT)",
+        "",
+        MA_string,
+        SkepticDK_string,
+        SkepticCH_string,
+        #SkepticDK_CH_Contrast_String,
+        InformedDK_string,
+        InformedCH_string
+        #InformedDK_CH_Contrast_String
+      )
+      # SkepticJP_string, SkepticDK_JP_Contrast_String, SkepticCH_JP_Contrast_String,  InformedJP_string,InformedDK_JP_Contrast_String, InformedCH_JP_Contrast_String
+      #Sex = c ("Biological sex (M - F)", "", "NA", "NA", "NA", "NA") #"NA", "NA")#SkepticDK_Sex_string, SkepticCH_Sex_string SkepticJP_Sex_string,"NA","NA","NA","NA""NA"
+      # Age = c ("Age", "", "NA", SkepticDK_Age_string, SkepticCH_Age_string, "NA", "NA")
+    )
+    
+    # Plots
+    # print("Fixed effects informed rng")
+    
+    InformedPlotDK <-
+    plot(hypothesis(InformedModelLanguage, "LanguageD:moSymptom > 0", class =
+                      "bsp"))[[1]] +
+    xlim(-1, 1) + ylim(0, 7) +
+    theme_classic() +
+    geom_vline(xintercept = 0,
+               linetype = "dotted",
+               color = "blue") +
+    ggtitle(Name) +
+    theme(plot.title = element_text(hjust = 0.5))
+
+    ggsave(
+    plot = InformedPlotDK,
+    file = here("plots", paste0(
+      Name, "_InformedPlot_DK_", level, ".svg"
+    )),
+    units = "cm",
+    height = 7,
+    width = 12
+    )
+
+    InformedPlotCH <-
+    plot(hypothesis(InformedModelLanguage, "LanguageC:moSymptom > 0", class =
+                      "bsp"))[[1]] +
+    xlim(-1, 1) + ylim(0, 7) +
+    theme_classic() +
+    geom_vline(xintercept = 0,
+                linetype = "dotted",
+              color = "blue") +
+    ggtitle(Name) +
+    theme(plot.title = element_text(hjust = 0.5))
+
+    ggsave(
+     plot = InformedPlotCH,
+    file = here("plots", paste0(
+      Name, "_InformedPlot_CH_", level, ".svg"
+    )),
+    units = "cm",
+    height = 7,
+    width = 12
+    )
+
+    post <- posterior_samples(SkepticModelLanguage) %>%
+      select(
+        SkepticPrior = "prior_bsp_LanguageD:moSymptom",
+        SkepticDK = "bsp_LanguageD:moSymptom",
+        SkepticCH = "bsp_LanguageC:moSymptom"
+        #     SkepticJP = "b_LanguageJ:MoSymptom"
+      )
+
+    post1 <-
+      posterior_samples(InformedModelLanguage) %>%
+      select(
+        InformedPrior = "prior_bsp",
+        InformedDK = "bsp_LanguageD:moSymptom",
+        InformedCH = "bsp_LanguageC:moSymptom"
+        #      InformedJP = "b_LanguageJ:moSymptom"
+      )
+
+    post2 <- cbind(post, post1) %>%
+      gather(parameter,
+             value,
+             SkepticPrior:InformedCH,
+             factor_key = TRUE)
+
+    PriorPlot <- post2 %>%
+      subset(parameter %in% c("InformedPrior", "SkepticPrior")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-0.2,0.2) +
+      ylim(0, 80) +
+      theme_classic()
+
+
+    DanishPlot <- post2 %>%
+      subset(parameter %in% c("InformedDK", "SkepticDK")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-0.05,0.05) +
+      ylim(0, 700) +
+      theme_classic()
+
+    ChinesePlot <- post2 %>%
+      subset(parameter %in% c("InformedCH", "SkepticCH")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-0.1,0.1) +
+      ylim(0, 200) +
+      theme_classic()
+
+    x <- PriorPlot / DanishPlot / ChinesePlot
+    print(x)
+
+    CompPlot <- ggplot(post2, aes(value, parameter)) +
+      geom_density_ridges() +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      theme_classic()
+    print(CompPlot)
+    
+    
+  }
+  
+  print("Hypothesis testing")
+  # #(kable(HypTable))
+  #print(kable(HypTable2))
+  ht <- formattable(HypTable)
+  
+  ht$Diagnosis[2]<- ht$Labels[2]
+  ht$Labels[2] <- ""
+  ht <- ht[2]
+  
+  assign(paste0("ht", num), ht, envir = .GlobalEnv)
+  
+  num= num+1 
+  assign("num", num, envir = .GlobalEnv)
+  #return(HypTable)
+}
+
+
+
+
+
+ModelsByMedication <- function(Name = "TotalPitchMedian",
+                              data = d_trial_SZ, 
+                              Variable = d_trial$PitchMedianS,
+                              SkepticPrior = SkepticPrior, 
+                              MA_model = Pitch_mean_Prior,
+                              Informed = FALSE, 
+                              level = "Trial"){
+
+  
+  
+
+ 
+  # Extracting Outcome variable
+  data$Outcome <- Variable
+  
+  data <- data %>% 
+    mutate(Outcome = Variable) %>%
+    subset(!is.na(Outcome))
+  
+  data$Outcome[data$Language=="D"] <- scale(data$Outcome[data$Language=="D"])
+  data$Outcome[data$Language=="C"] <- scale(data$Outcome[data$Language=="C"])
+  #data$Outcome[data$Language=="J"] <- scale(data$Outcome[data$Language=="J"])
+  data$Outcome[data$Language=="G"] <- scale(data$Outcome[data$Language=="G"])
+  
+  
+  
+  SkepticPrior <- c(
+    prior(normal(0, .5), class=b),
+    prior(normal(0, .7), class=sd),
+    prior(normal(0.3, 0.1), class = sigma)
+  )
+  
+ 
+  # Fitting Models
+  SkepticModelLanguage <- brmsFunMed(
+    Name = paste0(Name, "_SkepticModel_Medi_", level),
+    formula = MedicationVoice_Language_f,
+    data = data, iter = 10000)
+  
+  
+  print("Priors, summary and plots of the skeptic model")
+  print(prior_summary(SkepticModelLanguage))
+  print(summary(SkepticModelLanguage))
+  PlotByMedication(SkepticModelLanguage,"SkepticModel_Medi")
+  
+  
+  #SkepticModelGender <- brmsFun(
+   # Name = paste0(Name,"_SkepticModelGender_",level),
+    #formula = MedicationVoice_Gender_f,
+    #data = data)
+  
+  # SkepticModelSans <- brmsFun(
+  # Name = paste0(Name,"_SkepticModelSans_",level),
+  # formula = MedicationVoice_Sans_f,
+  # data = data)
+  # 
+  
+  
+  ## First we report the effect of diagnosis
+  
+  x1DK <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rlow > 0")
+  x1CH <- hypothesis(SkepticModelLanguage,"LanguageC:D2Rlow > 0")
+  #xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow > 0")
+  x1GE <- hypothesis(SkepticModelLanguage,"LanguageG:D2Rlow > 0")
+  
+  
+  if (x1DK$hypothesis$Estimate < 0){
+    x1DK <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rlow < 0")
+  }
+  if (x1CH$hypothesis$Estimate < 0){
+    x1CH <- hypothesis(SkepticModelLanguage,"LanguageC:D2Rlow < 0")
+  }
+  # if (xJP$hypothesis$Estimate < 0){
+  ##   xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow < 0")
+  #}
+  if (x1GE$hypothesis$Estimate < 0){
+    x1GE <- hypothesis(SkepticModelLanguage,"LanguageG:D2Rlow < 0")
+  }
+  
+  
+  
+  ER01DK = hypothesis(SkepticModelLanguage,"LanguageD:D2Rlow = 0")$hypothesis$Evid.Ratio
+  ER01CH = hypothesis(SkepticModelLanguage,"LanguageC:D2Rlow = 0")$hypothesis$Evid.Ratio
+  #ER01JP = hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow = 0")$hypothesis$Evid.Ratio  
+  ER01GE = hypothesis(SkepticModelLanguage,"LanguageG:D2Rlow = 0")$hypothesis$Evid.Ratio
+  
+  x2DK <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh > 0")
+  x2CH <- hypothesis(SkepticModelLanguage,"LanguageC:D2Rhigh > 0")
+  #xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow > 0")
+  x2GE <- hypothesis(SkepticModelLanguage,"LanguageG:D2Rhigh > 0")
+  
+  
+  if (x2DK$hypothesis$Estimate < 0){
+    x2DK <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh < 0")
+  }
+  if (x2CH$hypothesis$Estimate < 0){
+    x2CH <- hypothesis(SkepticModelLanguage,"LanguageC:D2Rhigh < 0")
+  }
+  # if (xJP$hypothesis$Estimate < 0){
+  ##   xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow < 0")
+  #}
+  if (x2GE$hypothesis$Estimate < 0){
+    x2GE <- hypothesis(SkepticModelLanguage,"LanguageG:D2Rhigh < 0")
+  }
+  
+  ER02DK = hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh = 0")$hypothesis$Evid.Ratio
+  ER02CH = hypothesis(SkepticModelLanguage,"LanguageC:D2Rhigh = 0")$hypothesis$Evid.Ratio
+  ER02GE = hypothesis(SkepticModelLanguage,"LanguageG:D2Rhigh = 0")$hypothesis$Evid.Ratio
+  
+  
+  SkepticDK1_string <- ResultsByString(x1DK, ER01DK)
+  SkepticCH1_string <- ResultsByString(x1CH, ER01CH)
+  SkepticGE1_string <- ResultsByString(x1GE, ER01GE)
+  
+  SkepticDK2_string <- ResultsByString(x2DK, ER02DK)
+  SkepticCH2_string <- ResultsByString(x2CH, ER02CH)
+  SkepticGE2_string <- ResultsByString(x2GE, ER02GE)
+  
+  
+  
+  
+   # High > Low
+  
+  x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh > LanguageD:D2Rlow")
+  if (x1$hypothesis$Estimate < 0){
+    x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh < LanguageD:D2Rlow")
+  }
+  CO01 = hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh = LanguageD:D2Rlow")$hypothesis$Evid.Ratio
+
+  
+  x2 <- hypothesis(SkepticModelLanguage,"LanguageC:D2Rhigh > LanguageC:D2Rlow")
+  if (x2$hypothesis$Estimate < 0){
+    x2 <- hypothesis(SkepticModelLanguage,"LanguageC:D2Rhigh < LanguageC:D2Rlow")
+  }
+  CO02 = hypothesis(SkepticModelLanguage,"LanguageC:D2Rhigh = LanguageC:D2Rlow")$hypothesis$Evid.Ratio
+  
+  
+  x3 <- hypothesis(SkepticModelLanguage,"LanguageG:D2Rhigh > LanguageG:D2Rlow")
+  if (x3$hypothesis$Estimate < 0){
+    x3 <- hypothesis(SkepticModelLanguage,"LanguageG:D2Rhigh < LanguageG:D2Rlow")
+  }
+  CO03 = hypothesis(SkepticModelLanguage,"LanguageG:D2Rhigh = LanguageG:D2Rlow")$hypothesis$Evid.Ratio
+  
+  
+  # # Report contrasts
+  # # High > Low 
+   SkepticHighLow_DK_Contrast_String <- ResultsByString(x1, CO01)
+   SkepticHighLow_CH_Contrast_String <- ResultsByString(x2, CO02)
+   SkepticHighLow_GE_Contrast_String <- ResultsByString(x3, CO03)
+   
+  
+ 
+  ## Now onto making a table with the results  
+  HypTable <- data.frame(
+    Labels = c("", 
+               Name, 
+               "Skeptical DK Low", 
+               "Skeptical CH Low", 
+               "Skeptical GE Low", 
+               "Skeptical DK High", 
+               "Skeptical CH High", 
+               "Skeptical GE High", 
+               "Skeptical DK High-Low", 
+               "Skeptical CH High-Low", 
+               "Skeptical GE High-Low"), #, "MA", "Informed DK", "Informed CH"
+    Diagnosis = c ("Group (SCZ - CT)", 
+                   "", 
+                   SkepticDK1_string,  
+                   SkepticCH1_string, 
+                   SkepticGE1_string, 
+                   SkepticDK2_string,  
+                   SkepticCH2_string, 
+                   SkepticGE2_string, 
+                   SkepticHighLow_DK_Contrast_String, 
+                   SkepticHighLow_CH_Contrast_String, 
+                   SkepticHighLow_GE_Contrast_String   
+                   )
+    #Sex = c ("Biological sex (M - F)", "", SkepticDK_Sex_string, SkepticCH_Sex_string,SkepticJP_Sex_string, "","","")
+  )
+  
+  if (Informed) {
+    MA <- MA_Med_report(MA_model)
+    MA_string1 <- paste0(MA$Mean_HIGHvsHC, " (","+", MA$Sd_HIGHvsHC, " -", MA$Sd_HIGHvsHC, ")")
+    MA_string2 <- paste0(MA$Mean_LOWvsHC, " (","+", MA$Sd_LOWvsHC, " -", MA$Sd_LOWvsHC, ")")
+    MA_string3 <- paste0(MA$Mean_HIGHvsLOW, " (","+", MA$Sd_HIGHvsLOW, " -", MA$Sd_HIGHvsLOW, ")")
+    
+    
+    round(MA_model$Mean_LOWvsHC, 2)
+    
+    xm1 <- as.numeric(MA_model$Mean_LOWvsHC)
+    xs1 <- as.numeric(MA_model$Sd_LOWvsHC)
+    
+    xm2 <- as.numeric(MA_model$Mean_HIGHvsHC)
+    xs2 <- as.numeric(MA_model$Sd_HIGHvsHC)
+
+    
+    InformedPrior <- c(
+      prior(normal(xm1, xs1), class=b, coef = LanguageD:D2Rlow),
+      prior(normal(xm1, xs1), class=b, coef = LanguageC:D2Rlow),
+      prior(normal(xm1, xs1), class=b, coef = LanguageG:D2Rlow),
+      prior(normal(xm2, xs2), class=b, coef = LanguageD:D2Rhigh),
+      prior(normal(xm2, xs2), class=b, coef = LanguageC:D2Rhigh),
+      prior(normal(xm2, xs2), class=b, coef = LanguageG:D2Rhigh),
+      prior(normal(0, .7), class = sd) ,
+      prior(normal(0, .5), class = b, coef = LanguageD),
+      prior(normal(0, .5), class = b, coef = LanguageC),
+      prior(normal(0, .5), class = b, coef = LanguageG),
+      prior(normal(0.3, 0.1), class = sigma)
+    )
+    
+    stanvars <- stanvar(xm1, name = 'xm1') + stanvar(xs1, name = 'xs1') + stanvar(xm2, name = 'xm2') + stanvar(xs2, name = 'xs2')
+    
+    InformedModelLanguage <-
+      brmsFunMed(
+        Name = paste0(Name, "_InformedModel_", level),
+        formula = MedicationVoice_Language_f,
+        data = data,
+        prior = InformedPrior,
+        stanvars = stanvars
+      )
+    
+    print("Priors, summary and plots of the informed model")
+    print(summary(InformedModelLanguage))
+    print(prior_summary(InformedModelLanguage))
+    PlotByMedication(InformedModelLanguage, "InformedModel")
+    
+    print("Model comparison with the skeptic model")
+    print(loo_compare(SkepticModelLanguage, InformedModelLanguage))
+    print(loo_model_weights(SkepticModelLanguage, InformedModelLanguage))
+    
+    
+    
+    ## First we report the effect of diagnosis
+    x1DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rlow > 0")
+    x1CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rlow > 0")
+    x1CH <- hypothesis(InformedModelLanguage,"LanguageG:D2Rlow > 0")
+    #xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow > 0")
+    
+    if (x1DK$hypothesis$Estimate < 0){
+      x1DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rlow < 0")
+    }
+    if (x1CH$hypothesis$Estimate < 0){
+      x1CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rlow < 0")
+    }
+    if (x1GE$hypothesis$Estimate < 0){
+      x1GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rlow < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0){
+    ##   xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow < 0")
+    #}
+    
+    ER01DK = hypothesis(InformedModelLanguage,"LanguageD:D2Rlow = 0")$hypothesis$Evid.Ratio
+    ER01CH = hypothesis(InformedModelLanguage,"LanguageC:D2Rlow = 0")$hypothesis$Evid.Ratio
+    ER01GE = hypothesis(InformedModelLanguage,"LanguageG:D2Rlow = 0")$hypothesis$Evid.Ratio
+    #ER01JP = hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow = 0")$hypothesis$Evid.Ratio  
+    
+    x2DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh > 0")
+    x2CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh > 0")
+    x2GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh > 0")
+    #xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow > 0")
+    
+    if (x2DK$hypothesis$Estimate < 0){
+      x2DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh < 0")
+    }
+    if (x2CH$hypothesis$Estimate < 0){
+      x2CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh < 0")
+    }
+    if (x2GE$hypothesis$Estimate < 0){
+      x2GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0){
+    ##   xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow < 0")
+    #}
+    
+    ER02DK = hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    ER02CH = hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    ER02GE = hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    
+    
+    InformedDK1_string <- ResultsByString(x1DK, ER01DK)
+    InformedCH1_string <- ResultsByString(x1CH, ER01CH)
+    InformedGE1_string <- ResultsByString(x1GE, ER01GE)
+    
+    InformedDK2_string <- ResultsByString(x2DK, ER02DK)
+    InformedCH2_string <- ResultsByString(x2CH, ER02CH)
+    InformedGE2_string <- ResultsByString(x2GE, ER02GE)
+    
+    
+    # High > Low
+    x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh > LanguageD:D2Rlow")
+    if (x1$hypothesis$Estimate < 0){
+      x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh < LanguageD:D2Rlow")
+    }
+    CO01 = hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh = LanguageD:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    x2 <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh > LanguageC:D2Rlow")
+    if (x2$hypothesis$Estimate < 0){
+      x2 <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh < LanguageC:D2Rlow")
+    }
+    CO02 = hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh = LanguageC:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    x3 <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh > LanguageG:D2Rlow")
+    if (x3$hypothesis$Estimate < 0){
+      x3 <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh < LanguageG:D2Rlow")
+    }
+    CO03 = hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh = LanguageG:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    InformedHighLow_DK_Contrast_String <- ResultsByString(x1, CO01)
+    InformedHighLow_CH_Contrast_String <- ResultsByString(x2, CO02)
+    InformedHighLow_GE_Contrast_String <- ResultsByString(x3, CO03) 
+    
+
+    
+    HypTable <- data.frame(
+      Labels = c(
+        "",
+        Name,
+        "MA_Priors_High vs HC",
+        "MA_Priors_Low vs HC",
+        "MA_Priors_High vs Low",
+        "Skeptical DK Low",
+        "Skeptical CH Low",
+        "Skeptical GE Low",
+        "Skeptical DK High",
+        "Skeptical CH High",
+        "Skeptical GE High",
+        "Skeptical DK High-Low", 
+        "Skeptical CH High-Low", 
+        "Skeptical GE High-Low",       
+        "Informed DK Low",
+        "Informed CH Low",
+        "Informed GE Low",
+        "Informed DK High",
+        "Informed CH High",
+        "Informed GE High",
+        "Informedal DK High-Low", 
+        "Informedal CH High-Low", 
+        "Informedal GE High-Low" 
+      ),
+      #
+      Diagnosis = c (
+        "Group (SCZ - CT)",
+        "",
+        MA_string1,
+        MA_string2,
+        MA_string3, 
+        SkepticDK1_string,
+        SkepticCH1_string,
+        SkepticGE1_string,
+        SkepticDK2_string,
+        SkepticCH2_string,
+        SkepticGE2_string,
+        SkepticHighLow_DK_Contrast_String, 
+        SkepticHighLow_CH_Contrast_String, 
+        SkepticHighLow_GE_Contrast_String,   
+        InformedDK1_string,
+        InformedCH1_string,
+        InformedGE1_string,
+        InformedDK2_string,
+        InformedCH2_string,
+        InformedGE2_string,
+        InformedHighLow_DK_Contrast_String, 
+        InformedHighLow_CH_Contrast_String, 
+        InformedHighLow_GE_Contrast_String
+      )
+      )
+  
+    
+    
+    
+    post <- posterior_samples(SkepticModelLanguage) %>%
+      select(
+        SkepticPrior = prior_b,
+        SkepticDK1 = "b_LanguageD:D2Rlow",
+        SkepticCH1 = "b_LanguageC:D2Rlow",
+        SkepticGE1 = "b_LanguageG:D2Rlow",
+        SkepticDK2 = "b_LanguageD:D2Rhigh",
+        SkepticCH2 = "b_LanguageC:D2Rhigh",
+        SkepticGE2 = "b_LanguageG:D2Rhigh"
+      )
+    
+    post1 <- posterior_samples(InformedModelLanguage) %>%
+      select(
+        InformedPrior1 = "prior_b_LanguageD:D2Rlow",
+        InformedPrior2 = "prior_b_LanguageD:D2Rhigh",
+        InformedPrior3 = "prior_b_LanguageD:D2Rhigh",
+        InformedDK1 = "b_LanguageD:D2Rlow",
+        InformedCH1 = "b_LanguageC:D2Rlow",
+        InformedGE1 = "b_LanguageG:D2Rlow",
+        InformedDK2 = "b_LanguageD:D2Rhigh",
+        InformedCH2 = "b_LanguageC:D2Rhigh",
+        InformedGE2 = "b_LanguageG:D2Rhigh",
+      )
+    
+    post2 <- cbind(post, post1) %>%
+      gather(parameter, value, SkepticPrior:InformedGE2, factor_key = TRUE)
+
+     
+    PriorPlot <- post2 %>%
+      subset(parameter %in% c("InformedPrior1", "InformedPrior2", "InformedPrior3","SkepticPrior")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    DanishPlot <- post2 %>%
+      subset(parameter %in% c("InformedDK1", "SkepticDK1", "InformedDK2", "SkepticDK2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    ChinesePlot <- post2 %>%
+      subset(parameter %in% c("InformedCH1", "SkepticCH1", "InformedCH2", "SkepticCH2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    GermanPlot <- post2 %>%
+      subset(parameter %in% c("InformedGE1", "SkepticGE1", "InformedGE2", "SkepticGE2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    #library(patchwork)
+    x <- PriorPlot / DanishPlot / ChinesePlot/GermanPlot 
+    print(x)
+    
+    
+    
+    
+    CompPlot <- ggplot(post2, aes(value, parameter)) +
+      geom_density_ridges() +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      theme_classic()
+    print(CompPlot)
+    
+  }
+  
+  print("Estimates in a table")
+  #formattable(HypTable)
+  ht <- formattable(HypTable)
+  assign("ht", ht, envir = .GlobalEnv)
+  #return(HypTable)
+ 
+  
+}
+
+
+
+ModelsByCPZ <- function(Name = "TotalPitchMedian",
+                               data = d_trial_SZ, 
+                               Variable = d_trial$PitchMedianS,
+                               SkepticPrior = SkepticPrior, 
+                               MA_model = Pitch_mean_Prior,
+                               Informed = FALSE, 
+                               level = "Trial"){
+  
+
+  
+
+  # Extracting Outcome variable
+  data$Outcome <- Variable
+  
+  data <- data %>% 
+    mutate(Outcome = Variable) %>%
+    subset(!is.na(Outcome))
+  
+  data$Outcome[data$Language=="D"] <- scale(data$Outcome[data$Language=="D"])
+  data$Outcome[data$Language=="C"] <- scale(data$Outcome[data$Language=="C"])
+  #data$Outcome[data$Language=="J"] <- scale(data$Outcome[data$Language=="J"])
+  data$Outcome[data$Language=="G"] <- scale(data$Outcome[data$Language=="G"])
+  
+  
+  
+  
+  
+  
+  SkepticPrior <- c(
+    prior(normal(0, .5), class=b),
+    prior(normal(0, .7), class=sd),
+    prior(normal(0.3, 0.1), class = sigma)
+  )
+
+  # Fitting Models
+  SkepticModelLanguage <- brmsFunMed(
+    Name = paste0(Name, "_SkepticModel_CPZ_", level),
+    formula = CPZVoice_Language_f,
+    data = data, iter = 10000)
+  
+  
+  print("Priors, summary and plots of the skeptic model")
+  print(prior_summary(SkepticModelLanguage))
+  print(summary(SkepticModelLanguage))
+  #PlotByMedication(SkepticModelLanguage,"SkepticModel_Medi")
+  
+ 
+  
+  
+  ## First we report the effect of diagnosis
+  
+  x1DK <- hypothesis(SkepticModelLanguage,"LanguageD:CPZ  > 0")
+  x1CH <- hypothesis(SkepticModelLanguage,"LanguageC:CPZ  > 0")
+  #xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow > 0")
+  x1GE <- hypothesis(SkepticModelLanguage,"LanguageG:CPZ  > 0")
+  
+  
+  if (x1DK$hypothesis$Estimate < 0){
+    x1DK <- hypothesis(SkepticModelLanguage,"LanguageD:CPZ  < 0")
+  }
+  if (x1CH$hypothesis$Estimate < 0){
+    x1CH <- hypothesis(SkepticModelLanguage,"LanguageC:CPZ  < 0")
+  }
+  # if (xJP$hypothesis$Estimate < 0){
+  ##   xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow < 0")
+  #}
+  if (x1GE$hypothesis$Estimate < 0){
+    x1GE <- hypothesis(SkepticModelLanguage,"LanguageG:CPZ  < 0")
+  }
+  
+  
+  
+  ER01DK = hypothesis(SkepticModelLanguage,"LanguageD:CPZ  = 0")$hypothesis$Evid.Ratio
+  ER01CH = hypothesis(SkepticModelLanguage,"LanguageC:CPZ  = 0")$hypothesis$Evid.Ratio
+  #ER01JP = hypothesis(SkepticModelLanguage,"LanguageJ:D2Rlow = 0")$hypothesis$Evid.Ratio  
+  ER01GE = hypothesis(SkepticModelLanguage,"LanguageG:CPZ  = 0")$hypothesis$Evid.Ratio
+  
+  
+  
+  
+  SkepticDK1_string <- ResultsByString(x1DK, ER01DK, rng = 100)
+  SkepticCH1_string <- ResultsByString(x1CH, ER01CH, rng = 100)
+  SkepticGE1_string <- ResultsByString(x1GE, ER01GE, rng = 100)
+ 
+  
+  ## Now onto making a table with the results  
+  HypTable <- data.frame(
+    Labels = c("", 
+               Name, 
+               "Skeptical DK Low", 
+               "Skeptical CH Low", 
+               "Skeptical GE Low"), 
+               Diagnosis = c ("Group (SCZ - CT)", 
+                   "", 
+                   SkepticDK1_string,  
+                   SkepticCH1_string, 
+                   SkepticGE1_string 
+    )
+    #Sex = c ("Biological sex (M - F)", "", SkepticDK_Sex_string, SkepticCH_Sex_string,SkepticJP_Sex_string, "","","")
+  )
+  
+  if (Informed) {
+    MA <- MA_Med_report(MA_model)
+    MA_string1 <- paste0(MA$Mean_HIGHvsHC, " (","+", MA$Sd_HIGHvsHC, " -", MA$Sd_HIGHvsHC, ")")
+    MA_string2 <- paste0(MA$Mean_LOWvsHC, " (","+", MA$Sd_LOWvsHC, " -", MA$Sd_LOWvsHC, ")")
+    MA_string3 <- paste0(MA$Mean_HIGHvsLOW, " (","+", MA$Sd_HIGHvsLOW, " -", MA$Sd_HIGHvsLOW, ")")
+    
+    
+    round(MA_model$Mean_LOWvsHC, 2)
+    
+    xm1 <- as.numeric(MA_model$Mean_LOWvsHC)
+    xs1 <- as.numeric(MA_model$Sd_LOWvsHC)
+    
+    xm2 <- as.numeric(MA_model$Mean_HIGHvsHC)
+    xs2 <- as.numeric(MA_model$Sd_HIGHvsHC)
+    
+    
+    InformedPrior <- c(
+      prior(normal(xm1, xs1), class=b, coef = LanguageD:D2Rlow),
+      prior(normal(xm1, xs1), class=b, coef = LanguageC:D2Rlow),
+      prior(normal(xm1, xs1), class=b, coef = LanguageG:D2Rlow),
+      prior(normal(xm2, xs2), class=b, coef = LanguageD:D2Rhigh),
+      prior(normal(xm2, xs2), class=b, coef = LanguageC:D2Rhigh),
+      prior(normal(xm2, xs2), class=b, coef = LanguageG:D2Rhigh),
+      prior(normal(0, .7), class = sd) ,
+      prior(normal(0, .5), class = b, coef = LanguageD),
+      prior(normal(0, .5), class = b, coef = LanguageC),
+      prior(normal(0, .5), class = b, coef = LanguageG),
+      prior(normal(0.3, 0.1), class = sigma)
+    )
+    
+    stanvars <- stanvar(xm1, name = 'xm1') + stanvar(xs1, name = 'xs1') + stanvar(xm2, name = 'xm2') + stanvar(xs2, name = 'xs2')
+    
+    InformedModelLanguage <-
+      brmsFunMed(
+        Name = paste0(Name, "_InformedModel_", level),
+        formula = MedicationVoice_Language_f,
+        data = data,
+        prior = InformedPrior,
+        stanvars = stanvars
+      )
+    
+    print("Priors, summary and plots of the informed model")
+    print(summary(InformedModelLanguage))
+    print(prior_summary(InformedModelLanguage))
+    PlotByMedication(InformedModelLanguage, "InformedModel")
+    
+    print("Model comparison with the skeptic model")
+    print(loo_compare(SkepticModelLanguage, InformedModelLanguage))
+    print(loo_model_weights(SkepticModelLanguage, InformedModelLanguage))
+    
+    
+    
+    ## First we report the effect of diagnosis
+    x1DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rlow > 0")
+    x1CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rlow > 0")
+    x1CH <- hypothesis(InformedModelLanguage,"LanguageG:D2Rlow > 0")
+    #xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow > 0")
+    
+    if (x1DK$hypothesis$Estimate < 0){
+      x1DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rlow < 0")
+    }
+    if (x1CH$hypothesis$Estimate < 0){
+      x1CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rlow < 0")
+    }
+    if (x1GE$hypothesis$Estimate < 0){
+      x1GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rlow < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0){
+    ##   xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow < 0")
+    #}
+    
+    ER01DK = hypothesis(InformedModelLanguage,"LanguageD:D2Rlow = 0")$hypothesis$Evid.Ratio
+    ER01CH = hypothesis(InformedModelLanguage,"LanguageC:D2Rlow = 0")$hypothesis$Evid.Ratio
+    ER01GE = hypothesis(InformedModelLanguage,"LanguageG:D2Rlow = 0")$hypothesis$Evid.Ratio
+    #ER01JP = hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow = 0")$hypothesis$Evid.Ratio  
+    
+    x2DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh > 0")
+    x2CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh > 0")
+    x2GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh > 0")
+    #xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow > 0")
+    
+    if (x2DK$hypothesis$Estimate < 0){
+      x2DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh < 0")
+    }
+    if (x2CH$hypothesis$Estimate < 0){
+      x2CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh < 0")
+    }
+    if (x2GE$hypothesis$Estimate < 0){
+      x2GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0){
+    ##   xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow < 0")
+    #}
+    
+    ER02DK = hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    ER02CH = hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    ER02GE = hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    
+    
+    InformedDK1_string <- ResultsByString(x1DK, ER01DK, rng = 100)
+    InformedCH1_string <- ResultsByString(x1CH, ER01CH, rng = 100)
+    InformedGE1_string <- ResultsByString(x1GE, ER01GE, rng = 100)
+    
+    InformedDK2_string <- ResultsByString(x2DK, ER02DK, rng = 100)
+    InformedCH2_string <- ResultsByString(x2CH, ER02CH, rng = 100)
+    InformedGE2_string <- ResultsByString(x2GE, ER02GE, rng = 100)
+    
+    
+    # High > Low
+    x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh > LanguageD:D2Rlow")
+    if (x1$hypothesis$Estimate < 0){
+      x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh < LanguageD:D2Rlow")
+    }
+    CO01 = hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh = LanguageD:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    x2 <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh > LanguageC:D2Rlow")
+    if (x2$hypothesis$Estimate < 0){
+      x2 <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh < LanguageC:D2Rlow")
+    }
+    CO02 = hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh = LanguageC:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    x3 <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh > LanguageG:D2Rlow")
+    if (x3$hypothesis$Estimate < 0){
+      x3 <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh < LanguageG:D2Rlow")
+    }
+    CO03 = hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh = LanguageG:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    InformedHighLow_DK_Contrast_String <- ResultsByString(x1, CO01)
+    InformedHighLow_CH_Contrast_String <- ResultsByString(x2, CO02)
+    InformedHighLow_GE_Contrast_String <- ResultsByString(x3, CO03) 
+    
+    
+    
+    HypTable <- data.frame(
+      Labels = c(
+        "",
+        Name,
+        "MA_Priors_High vs HC",
+        "MA_Priors_Low vs HC",
+        "MA_Priors_High vs Low",
+        "Skeptical DK Low",
+        "Skeptical CH Low",
+        "Skeptical GE Low",
+        "Skeptical DK High",
+        "Skeptical CH High",
+        "Skeptical GE High",
+        "Skeptical DK High-Low", 
+        "Skeptical CH High-Low", 
+        "Skeptical GE High-Low",       
+        "Informed DK Low",
+        "Informed CH Low",
+        "Informed GE Low",
+        "Informed DK High",
+        "Informed CH High",
+        "Informed GE High",
+        "Informedal DK High-Low", 
+        "Informedal CH High-Low", 
+        "Informedal GE High-Low" 
+      ),
+      #
+      Diagnosis = c (
+        "Group (SCZ - CT)",
+        "",
+        MA_string1,
+        MA_string2,
+        MA_string3, 
+        SkepticDK1_string,
+        SkepticCH1_string,
+        SkepticGE1_string,
+        SkepticDK2_string,
+        SkepticCH2_string,
+        SkepticGE2_string,
+        SkepticHighLow_DK_Contrast_String, 
+        SkepticHighLow_CH_Contrast_String, 
+        SkepticHighLow_GE_Contrast_String,   
+        InformedDK1_string,
+        InformedCH1_string,
+        InformedGE1_string,
+        InformedDK2_string,
+        InformedCH2_string,
+        InformedGE2_string,
+        InformedHighLow_DK_Contrast_String, 
+        InformedHighLow_CH_Contrast_String, 
+        InformedHighLow_GE_Contrast_String
+      )
+    )
+    
+    
+    
+    
+    post <- posterior_samples(SkepticModelLanguage) %>%
+      select(
+        SkepticPrior = prior_b,
+        SkepticDK1 = "b_LanguageD:D2Rlow",
+        SkepticCH1 = "b_LanguageC:D2Rlow",
+        SkepticGE1 = "b_LanguageG:D2Rlow",
+        SkepticDK2 = "b_LanguageD:D2Rhigh",
+        SkepticCH2 = "b_LanguageC:D2Rhigh",
+        SkepticGE2 = "b_LanguageG:D2Rhigh"
+      )
+    
+    post1 <- posterior_samples(InformedModelLanguage) %>%
+      select(
+        InformedPrior1 = "prior_b_LanguageD:D2Rlow",
+        InformedPrior2 = "prior_b_LanguageD:D2Rhigh",
+        InformedPrior3 = "prior_b_LanguageD:D2Rhigh",
+        InformedDK1 = "b_LanguageD:D2Rlow",
+        InformedCH1 = "b_LanguageC:D2Rlow",
+        InformedGE1 = "b_LanguageG:D2Rlow",
+        InformedDK2 = "b_LanguageD:D2Rhigh",
+        InformedCH2 = "b_LanguageC:D2Rhigh",
+        InformedGE2 = "b_LanguageG:D2Rhigh",
+      )
+    
+    post2 <- cbind(post, post1) %>%
+      gather(parameter, value, SkepticPrior:InformedGE2, factor_key = TRUE)
+    
+    
+    PriorPlot <- post2 %>%
+      subset(parameter %in% c("InformedPrior1", "InformedPrior2", "InformedPrior3","SkepticPrior")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    DanishPlot <- post2 %>%
+      subset(parameter %in% c("InformedDK1", "SkepticDK1", "InformedDK2", "SkepticDK2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    ChinesePlot <- post2 %>%
+      subset(parameter %in% c("InformedCH1", "SkepticCH1", "InformedCH2", "SkepticCH2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    GermanPlot <- post2 %>%
+      subset(parameter %in% c("InformedGE1", "SkepticGE1", "InformedGE2", "SkepticGE2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    #library(patchwork)
+    x <- PriorPlot / DanishPlot / ChinesePlot/GermanPlot 
+    print(x)
+    
+    
+    
+    
+    CompPlot <- ggplot(post2, aes(value, parameter)) +
+      geom_density_ridges() +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      theme_classic()
+    print(CompPlot)
+    
+  }
+  
+  print("Estimates in a table")
+  #formattable(HypTable)
+  ht <- formattable(HypTable)
+  assign("ht", ht, envir = .GlobalEnv)
+  #return(HypTable)
+  
+  
+}
+
+
+ModelsByDUI <- function(Name = "TotalPitchMedian",
+                        data = d_trial_SZ, 
+                        Variable = d_trial$PitchMedianS,
+                        SkepticPrior = SkepticPrior, 
+                        MA_model = Pitch_mean_Prior,
+                        Informed = FALSE, 
+                        level = "Trial"){
+  
+  
+
+  
+  # Extracting Outcome variable
+  data$Outcome <- Variable
+  
+  data <- data %>% 
+    mutate(Outcome = Variable) %>%
+    subset(!is.na(Outcome))
+  
+  data$Outcome[data$Language=="D"] <- scale(data$Outcome[data$Language=="D"])
+  data$Outcome[data$Language=="C"] <- scale(data$Outcome[data$Language=="C"])
+  #data$Outcome[data$Language=="J"] <- scale(data$Outcome[data$Language=="J"])
+  data$Outcome[data$Language=="G"] <- scale(data$Outcome[data$Language=="G"])
+  
+  
+  
+  
+  
+  
+  SkepticPrior <- c(
+    prior(normal(0, .5), class=b),
+    prior(normal(0, .7), class=sd),
+    prior(normal(0.3, 0.1), class = sigma)
+  )
+  
+  # Fitting Models
+  SkepticModelLanguage <- brmsFunMed(
+    Name = paste0(Name, "_SkepticModel_DUI_", level),
+    formula = DUIVoice_Language_f,
+    data = data, iter = 10000)
+  
+  
+  print("Priors, summary and plots of the skeptic model")
+  print(prior_summary(SkepticModelLanguage))
+  print(summary(SkepticModelLanguage))
+  #PlotByMedication(SkepticModelLanguage,"SkepticModel_Medi")
+  
+ 
+  
+  
+  ## First we report the effect of diagnosis
+  
+  x1DK <- hypothesis(SkepticModelLanguage,"LanguageD:Ill_Dur > 0")
+  x1CH <- hypothesis(SkepticModelLanguage,"LanguageC:Ill_Dur  > 0")
+  x1JP <- hypothesis(SkepticModelLanguage,"LanguageJ:Ill_Dur > 0")
+  x1GE <- hypothesis(SkepticModelLanguage,"LanguageG:Ill_Dur  > 0")
+  
+  
+  if (x1DK$hypothesis$Estimate < 0){
+    x1DK <- hypothesis(SkepticModelLanguage,"LanguageD:Ill_Dur  < 0")
+  }
+  if (x1CH$hypothesis$Estimate < 0){
+    x1CH <- hypothesis(SkepticModelLanguage,"LanguageC:Ill_Dur  < 0")
+  }
+  if (x1JP$hypothesis$Estimate < 0){
+     xJP <- hypothesis(SkepticModelLanguage,"LanguageJ:Ill_Dur< 0")
+  }
+  if (x1GE$hypothesis$Estimate < 0){
+    x1GE <- hypothesis(SkepticModelLanguage,"LanguageG:Ill_Dur  < 0")
+  }
+  
+  
+  
+  ER01DK = hypothesis(SkepticModelLanguage,"LanguageD:Ill_Dur  = 0")$hypothesis$Evid.Ratio
+  ER01CH = hypothesis(SkepticModelLanguage,"LanguageC:Ill_Dur  = 0")$hypothesis$Evid.Ratio
+  ER01JP = hypothesis(SkepticModelLanguage,"LanguageJ:Ill_Dur = 0")$hypothesis$Evid.Ratio  
+  ER01GE = hypothesis(SkepticModelLanguage,"LanguageG:Ill_Dur  = 0")$hypothesis$Evid.Ratio
+  
+
+  
+  SkepticDK1_string <- ResultsByString(x1DK, ER01DK, rng = 10)
+  SkepticCH1_string <- ResultsByString(x1CH, ER01CH, rng = 10)
+  SkepticJP1_string <- ResultsByString(x1JP, ER01JP, rng = 10)
+  SkepticGE1_string <- ResultsByString(x1GE, ER01GE, rng = 10)
+
+  
+  
+  
+  ## Now onto making a table with the results  
+  HypTable <- data.frame(
+    Labels = c("", 
+               Name, 
+               "Skeptical DK", 
+               "Skeptical CH", 
+               "Skeptical JP", 
+               "Skeptical GE"), 
+    Diagnosis = c ("Group (SCZ - CT)", 
+                   "", 
+                   SkepticDK1_string,  
+                   SkepticCH1_string, 
+                   SkepticJP1_string, 
+                   SkepticGE1_string 
+    )
+    #Sex = c ("Biological sex (M - F)", "", SkepticDK_Sex_string, SkepticCH_Sex_string,SkepticJP_Sex_string, "","","")
+  )
+  
+  if (Informed) {
+    MA <- MA_Med_report(MA_model)
+    MA_string1 <- paste0(MA$Mean_HIGHvsHC, " (","+", MA$Sd_HIGHvsHC, " -", MA$Sd_HIGHvsHC, ")")
+    MA_string2 <- paste0(MA$Mean_LOWvsHC, " (","+", MA$Sd_LOWvsHC, " -", MA$Sd_LOWvsHC, ")")
+    MA_string3 <- paste0(MA$Mean_HIGHvsLOW, " (","+", MA$Sd_HIGHvsLOW, " -", MA$Sd_HIGHvsLOW, ")")
+    
+    
+    round(MA_model$Mean_LOWvsHC, 2)
+    
+    xm1 <- as.numeric(MA_model$Mean_LOWvsHC)
+    xs1 <- as.numeric(MA_model$Sd_LOWvsHC)
+    
+    xm2 <- as.numeric(MA_model$Mean_HIGHvsHC)
+    xs2 <- as.numeric(MA_model$Sd_HIGHvsHC)
+    
+    
+    InformedPrior <- c(
+      prior(normal(xm1, xs1), class=b, coef = LanguageD:D2Rlow),
+      prior(normal(xm1, xs1), class=b, coef = LanguageC:D2Rlow),
+      prior(normal(xm1, xs1), class=b, coef = LanguageG:D2Rlow),
+      prior(normal(xm2, xs2), class=b, coef = LanguageD:D2Rhigh),
+      prior(normal(xm2, xs2), class=b, coef = LanguageC:D2Rhigh),
+      prior(normal(xm2, xs2), class=b, coef = LanguageG:D2Rhigh),
+      prior(normal(0, .7), class = sd) ,
+      prior(normal(0, .5), class = b, coef = LanguageD),
+      prior(normal(0, .5), class = b, coef = LanguageC),
+      prior(normal(0, .5), class = b, coef = LanguageG),
+      prior(normal(0.3, 0.1), class = sigma)
+    )
+    
+    stanvars <- stanvar(xm1, name = 'xm1') + stanvar(xs1, name = 'xs1') + stanvar(xm2, name = 'xm2') + stanvar(xs2, name = 'xs2')
+    
+    InformedModelLanguage <-
+      brmsFunMed(
+        Name = paste0(Name, "_InformedModel_", level),
+        formula = MedicationVoice_Language_f,
+        data = data,
+        prior = InformedPrior,
+        stanvars = stanvars
+      )
+    
+    print("Priors, summary and plots of the informed model")
+    print(summary(InformedModelLanguage))
+    print(prior_summary(InformedModelLanguage))
+    PlotByMedication(InformedModelLanguage, "InformedModel")
+    
+    print("Model comparison with the skeptic model")
+    print(loo_compare(SkepticModelLanguage, InformedModelLanguage))
+    print(loo_model_weights(SkepticModelLanguage, InformedModelLanguage))
+    
+    
+    
+    ## First we report the effect of diagnosis
+    x1DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rlow > 0")
+    x1CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rlow > 0")
+    x1CH <- hypothesis(InformedModelLanguage,"LanguageG:D2Rlow > 0")
+    #xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow > 0")
+    
+    if (x1DK$hypothesis$Estimate < 0){
+      x1DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rlow < 0")
+    }
+    if (x1CH$hypothesis$Estimate < 0){
+      x1CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rlow < 0")
+    }
+    if (x1GE$hypothesis$Estimate < 0){
+      x1GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rlow < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0){
+    ##   xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow < 0")
+    #}
+    
+    ER01DK = hypothesis(InformedModelLanguage,"LanguageD:D2Rlow = 0")$hypothesis$Evid.Ratio
+    ER01CH = hypothesis(InformedModelLanguage,"LanguageC:D2Rlow = 0")$hypothesis$Evid.Ratio
+    ER01GE = hypothesis(InformedModelLanguage,"LanguageG:D2Rlow = 0")$hypothesis$Evid.Ratio
+    #ER01JP = hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow = 0")$hypothesis$Evid.Ratio  
+    
+    x2DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh > 0")
+    x2CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh > 0")
+    x2GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh > 0")
+    #xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow > 0")
+    
+    if (x2DK$hypothesis$Estimate < 0){
+      x2DK <- hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh < 0")
+    }
+    if (x2CH$hypothesis$Estimate < 0){
+      x2CH <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh < 0")
+    }
+    if (x2GE$hypothesis$Estimate < 0){
+      x2GE <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh < 0")
+    }
+    # if (xJP$hypothesis$Estimate < 0){
+    ##   xJP <- hypothesis( InformedModelLanguage,"LanguageJ:D2Rlow < 0")
+    #}
+    
+    ER02DK = hypothesis(InformedModelLanguage,"LanguageD:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    ER02CH = hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    ER02GE = hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh = 0")$hypothesis$Evid.Ratio
+    
+    
+    InformedDK1_string <- ResultsByString(x1DK, ER01DK)
+    InformedCH1_string <- ResultsByString(x1CH, ER01CH)
+    InformedGE1_string <- ResultsByString(x1GE, ER01GE)
+    
+    InformedDK2_string <- ResultsByString(x2DK, ER02DK)
+    InformedCH2_string <- ResultsByString(x2CH, ER02CH)
+    InformedGE2_string <- ResultsByString(x2GE, ER02GE)
+    
+    
+    # High > Low
+    x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh > LanguageD:D2Rlow")
+    if (x1$hypothesis$Estimate < 0){
+      x1 <- hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh < LanguageD:D2Rlow")
+    }
+    CO01 = hypothesis(SkepticModelLanguage,"LanguageD:D2Rhigh = LanguageD:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    x2 <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh > LanguageC:D2Rlow")
+    if (x2$hypothesis$Estimate < 0){
+      x2 <- hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh < LanguageC:D2Rlow")
+    }
+    CO02 = hypothesis(InformedModelLanguage,"LanguageC:D2Rhigh = LanguageC:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    x3 <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh > LanguageG:D2Rlow")
+    if (x3$hypothesis$Estimate < 0){
+      x3 <- hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh < LanguageG:D2Rlow")
+    }
+    CO03 = hypothesis(InformedModelLanguage,"LanguageG:D2Rhigh = LanguageG:D2Rlow")$hypothesis$Evid.Ratio
+    
+    
+    InformedHighLow_DK_Contrast_String <- ResultsByString(x1, CO01)
+    InformedHighLow_CH_Contrast_String <- ResultsByString(x2, CO02)
+    InformedHighLow_GE_Contrast_String <- ResultsByString(x3, CO03) 
+    
+    
+    
+    HypTable <- data.frame(
+      Labels = c(
+        "",
+        Name,
+        "MA_Priors_High vs HC",
+        "MA_Priors_Low vs HC",
+        "MA_Priors_High vs Low",
+        "Skeptical DK Low",
+        "Skeptical CH Low",
+        "Skeptical GE Low",
+        "Skeptical DK High",
+        "Skeptical CH High",
+        "Skeptical GE High",
+        "Skeptical DK High-Low", 
+        "Skeptical CH High-Low", 
+        "Skeptical GE High-Low",       
+        "Informed DK Low",
+        "Informed CH Low",
+        "Informed GE Low",
+        "Informed DK High",
+        "Informed CH High",
+        "Informed GE High",
+        "Informedal DK High-Low", 
+        "Informedal CH High-Low", 
+        "Informedal GE High-Low" 
+      ),
+      #
+      Diagnosis = c (
+        "Group (SCZ - CT)",
+        "",
+        MA_string1,
+        MA_string2,
+        MA_string3, 
+        SkepticDK1_string,
+        SkepticCH1_string,
+        SkepticGE1_string,
+        SkepticDK2_string,
+        SkepticCH2_string,
+        SkepticGE2_string,
+        SkepticHighLow_DK_Contrast_String, 
+        SkepticHighLow_CH_Contrast_String, 
+        SkepticHighLow_GE_Contrast_String,   
+        InformedDK1_string,
+        InformedCH1_string,
+        InformedGE1_string,
+        InformedDK2_string,
+        InformedCH2_string,
+        InformedGE2_string,
+        InformedHighLow_DK_Contrast_String, 
+        InformedHighLow_CH_Contrast_String, 
+        InformedHighLow_GE_Contrast_String
+      )
+    )
+    
+    
+    
+    
+    post <- posterior_samples(SkepticModelLanguage) %>%
+      select(
+        SkepticPrior = prior_b,
+        SkepticDK1 = "b_LanguageD:D2Rlow",
+        SkepticCH1 = "b_LanguageC:D2Rlow",
+        SkepticGE1 = "b_LanguageG:D2Rlow",
+        SkepticDK2 = "b_LanguageD:D2Rhigh",
+        SkepticCH2 = "b_LanguageC:D2Rhigh",
+        SkepticGE2 = "b_LanguageG:D2Rhigh"
+      )
+    
+    post1 <- posterior_samples(InformedModelLanguage) %>%
+      select(
+        InformedPrior1 = "prior_b_LanguageD:D2Rlow",
+        InformedPrior2 = "prior_b_LanguageD:D2Rhigh",
+        InformedPrior3 = "prior_b_LanguageD:D2Rhigh",
+        InformedDK1 = "b_LanguageD:D2Rlow",
+        InformedCH1 = "b_LanguageC:D2Rlow",
+        InformedGE1 = "b_LanguageG:D2Rlow",
+        InformedDK2 = "b_LanguageD:D2Rhigh",
+        InformedCH2 = "b_LanguageC:D2Rhigh",
+        InformedGE2 = "b_LanguageG:D2Rhigh",
+      )
+    
+    post2 <- cbind(post, post1) %>%
+      gather(parameter, value, SkepticPrior:InformedGE2, factor_key = TRUE)
+    
+    
+    PriorPlot <- post2 %>%
+      subset(parameter %in% c("InformedPrior1", "InformedPrior2", "InformedPrior3","SkepticPrior")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    DanishPlot <- post2 %>%
+      subset(parameter %in% c("InformedDK1", "SkepticDK1", "InformedDK2", "SkepticDK2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    ChinesePlot <- post2 %>%
+      subset(parameter %in% c("InformedCH1", "SkepticCH1", "InformedCH2", "SkepticCH2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    GermanPlot <- post2 %>%
+      subset(parameter %in% c("InformedGE1", "SkepticGE1", "InformedGE2", "SkepticGE2")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-2,2) +
+      ylim(0, 5) +
+      theme_classic()
+    
+    #library(patchwork)
+    x <- PriorPlot / DanishPlot / ChinesePlot/GermanPlot 
+    print(x)
+    
+    
+    
+    
+    CompPlot <- ggplot(post2, aes(value, parameter)) +
+      geom_density_ridges() +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      theme_classic()
+    print(CompPlot)
+    
+  }
+  
+  print("Estimates in a table")
+  #formattable(HypTable)
+  ht <- formattable(HypTable)
+  assign("ht", ht, envir = .GlobalEnv)
+  #return(HypTable)
+  
+  
+}
+
+
+
+
+ModelsByPesope <- function(Name = "TotalPitchMedian",
+                            data = d_trial_SZ,
+                            Outcome = d_trial_SZ$PitchMedianS,
+                            Symptom = d_trial_SZ$AdosTotal,
+                            SkepticPrior = SkepticPrior,
+                            MA_model = PitchMean_BayesianPrior,
+                            Informed = TRUE,
+                            level = "Trial") {
+  
+
+  
+  print(Name)
+  
+
+
+   
+  # Extracting Outcome variable
+  
+  data$Outcome <- Outcome
+  
+  
+  data$Outcome[data$Language == "D"] <- (data$Outcome[data$Language == "D"] - min(data$Outcome[data$Language == "D"], na.rm = T))
+  
+  
+  data$Outcome[data$Language == "D"] <- data$Outcome[data$Language == "D"] / (max(data$Outcome[data$Language == "D"], na.rm = TRUE))
+  
+  
+  data$Outcome[data$Language == "C"] <- (data$Outcome[data$Language == "C"] - min(data$Outcome[data$Language == "C"], na.rm = T))
+  
+  
+  data$Outcome[data$Language == "C"] <- data$Outcome[data$Language == "C"] / (max(data$Outcome[data$Language == "C"], na.rm = TRUE))
+  
+  
+  
+  
+  
+  data$Symptom <- Symptom
+  data$Symptom <- as.integer(data$Symptom)
+  data <- data %>% subset(!is.na(Symptom) & !is.na(Outcome)) %>%
+    mutate(Language = as.factor(as.character(Language)))
+  
+  ## Priors
+  rng <- range(data$Symptom, na.rm = T)[2]
+  
+  # adjust prior
+  
+  xm = (.3 / rng) * 2
+  
+  
+  
+  if ("D" %in% unique(data$Language) & "C" %in% unique(data$Language)){
+    SkepticPrior <- c(prior(normal(0.5, .3), class = b),
+                      prior(normal(0, xm), class=b, coef = "LanguageD:moSymptom"),
+                      prior(normal(0, xm), class=b, coef = "LanguageC:moSymptom"),
+                      prior(normal(0, .1), class = sd),
+                      prior(normal(0.3, 0.1), class = sigma))
+  }
+  
+
+  
+  stanvars <-
+    stanvar(xm, name = 'xm')
+  
+  
+  
+  SkepticModelLanguage <-
+    brmsFunSym(
+      Name = paste0(Name, "_SkepticModel", level),
+      formula = SymptomVoice_Language_f,
+      data = data,
+      prior = SkepticPrior,
+      stanvars = stanvars
+    )
+  
+  print("Priors, summary and plots of the skeptic model")
+  print(prior_summary(SkepticModelLanguage))
+  print(summary(SkepticModelLanguage))
+  
+  PlotBySymtpom(SkepticModelLanguage, "Skeptic_model")
+  
+  
+  
+  
+  
+  ## First we report the effect of diagnosis
+  xDK <- hypothesis(SkepticModelLanguage, "LanguageD:moSymptom > 0", class = "bsp")
+  xCH <- hypothesis(SkepticModelLanguage, "LanguageC:moSymptom > 0", class = "bsp")
+  
+  
+  if (xDK$hypothesis$Estimate < 0) {
+    xDK <- hypothesis(SkepticModelLanguage, "LanguageD:moSymptom < 0", class = "bsp")
+  }
+  
+  if (xCH$hypothesis$Estimate < 0) {
+    xCH <- hypothesis(SkepticModelLanguage, "LanguageC:moSymptom < 0", class = "bsp")
+  }
+  
+  
+  ER01DK = hypothesis(SkepticModelLanguage, "LanguageD:moSymptom = 0", class =
+                        "bsp")$hypothesis$Evid.Ratio
+  ER01CH = hypothesis(SkepticModelLanguage, "LanguageC:moSymptom = 0", class =
+                        "bsp")$hypothesis$Evid.Ratio
+  
+  
+  SkepticDK_string <- ResultsByString(xDK, ER01DK, rng = rng)
+  SkepticCH_string <- ResultsByString(xCH, ER01CH, rng = rng)
+  
+  
+  
+  
+  
+  HypTable <- data.frame(
+    Labels = c("", Name, "Skeptical DK", 
+               "Skeptical CH"
+               #"Contrast DK-CH"
+    ),
+    #"Skeptical JP", , "Contrast DK-JP", "Contrast CH-JP"), #, "MA", "Informed DK", "Informed CH"
+    Diagnosis = c (
+      "Group (SCZ - CT)",
+      "",
+      SkepticDK_string,
+      SkepticCH_string
+      # SkepticDK_CH_Contrast_String
+    )
+    # SkepticJP_string, SkepticDK_JP_Contrast_String, SkepticCH_JP_Contrast_String),
+    # Sex = c ("Biological sex (M - F)", 
+    #          "", 
+    #          "", 
+    #          "") 
+    # SkepticJP_Sex_string "",""
+    #  Age = c ("Age", "", SkepticDK_Age_string, SkepticCH_Age_string) SkepticDK_Sex_string, SkepticCH_Sex_string
+  )
+  
+  
+  if (Informed) {
+    
+    
+    
+    MA <- MA_Bayesreport(MA_model)
+    MA_string <-
+      paste0(MA$Mean, " (", MA$CI_l, " ", MA$CI_u, ")")
+    
+    xm <- MA$Mean
+    xs <- MA$Sd
+    xm2 <- xm / rng
+    xs2 <- (xs / rng) * 3
+    
+    InformedPrior <- c(
+      prior(normal(xm2, xs2), class = b),
+      prior(normal(0, 0.1), class = sd) ,
+      prior(normal(0.5, .3), class = b, coef = LanguageD),
+      prior(normal(0.5, .3), class = b, coef = LanguageC),
+      prior(normal(0, .3), class = sigma)
+    )
+    
+    stanvars <-
+      stanvar(xm2, name = 'xm2') + stanvar(xs2, name = 'xs2')
+    
+    InformedModelLanguage <-
+      brmsFunSym(
+        Name = paste0(Name, "_InformedModel_", level),
+        formula = SymptomVoice_Language_f,
+        data = data,
+        prior = InformedPrior,
+        stanvars = stanvars
+      )
+    
+    
+    
+    
+    print("Priors, summary and plots of the informed model")
+    print(prior_summary(InformedModelLanguage))
+    print(summary(InformedModelLanguage))
+    
+    PlotBySymtpom(InformedModelLanguage, "Informed_model")
+    
+    
+    # Model comparison
+    
+    
+    print("Model comparison with the skeptic model")
+    print(loo_compare(SkepticModelLanguage, InformedModelLanguage))
+    print(loo_model_weights(SkepticModelLanguage, InformedModelLanguage))
+    
+    
+    
+    ## First we report the effect of diagnosis
+    
+    xDK <- hypothesis(InformedModelLanguage, "LanguageD:moSymptom > 0", class = "bsp")
+    xCH <- hypothesis(InformedModelLanguage, "LanguageC:moSymptom > 0", class = "bsp")
+    
+    if (xDK$hypothesis$Estimate < 0) {
+      xDK <- hypothesis(InformedModelLanguage, "LanguageD:moSymptom < 0", class = "bsp")
+    }
+    if (xCH$hypothesis$Estimate < 0) {
+      xCH <- hypothesis(InformedModelLanguage, "LanguageC:moSymptom < 0", class = "bsp")
+    }
+    
+    ER01DK = hypothesis(InformedModelLanguage, "LanguageD:moSymptom = 0", class =
+                          "bsp")$hypothesis$Evid.Ratio
+    ER01CH = hypothesis(InformedModelLanguage, "LanguageC:moSymptom = 0", class =
+                          "bsp")$hypothesis$Evid.Ratio
+    
+    InformedDK_string <- ResultsByString(xDK, ER01DK, rng = rng)
+    InformedCH_string <- ResultsByString(xCH, ER01CH, rng = rng)
+    
+    # DK > CH
+    x1 <- hypothesis(InformedModelLanguage,
+                     "LanguageD:moSymptom > LanguageC:moSymptom",
+                     class = "bsp")
+    if (x1$hypothesis$Estimate < 0) {
+      x1 <- hypothesis(InformedModelLanguage,
+                       "LanguageD:moSymptom < LanguageC:moSymptom",
+                       class = "bsp")
+    }
+    ER01 = hypothesis(InformedModelLanguage,
+                      "LanguageD:moSymptom = LanguageC:moSymptom",
+                      class = "bsp")$hypothesis$Evid.Ratio
+    
+    # Report contrasts
+    #DK >CH
+    InformedDK_CH_Contrast_String <- ResultsByString(x1, ER01, rng = rng)
+    
+    HypTable <- data.frame(
+      Labels = c(
+        "",
+        Name,
+        "MA Priors",
+        "Skeptical DK",
+        "Skeptical CH",
+        #"Contrast DK-CH",
+        "Informed DK",
+        "Informed CH"
+        #"Contrast DK-CH"
+      ),
+      #"Skeptical JP","Contrast DK-JP", "Contrast CH-JP","Contrast DK-JP", "Contrast CH-JP" "Informed JP",
+      Diagnosis = c (
+        "Group (SCZ - CT)",
+        "",
+        MA_string,
+        SkepticDK_string,
+        SkepticCH_string,
+        #SkepticDK_CH_Contrast_String,
+        InformedDK_string,
+        InformedCH_string
+        #InformedDK_CH_Contrast_String
+      )
+      # SkepticJP_string, SkepticDK_JP_Contrast_String, SkepticCH_JP_Contrast_String,  InformedJP_string,InformedDK_JP_Contrast_String, InformedCH_JP_Contrast_String
+      #Sex = c ("Biological sex (M - F)", "", "NA", "NA", "NA", "NA") #"NA", "NA")#SkepticDK_Sex_string, SkepticCH_Sex_string SkepticJP_Sex_string,"NA","NA","NA","NA""NA"
+      # Age = c ("Age", "", "NA", SkepticDK_Age_string, SkepticCH_Age_string, "NA", "NA")
+    )
+    
+    # Plots
+    # print("Fixed effects informed rng")
+    
+    InformedPlotDK <-
+      plot(hypothesis(InformedModelLanguage, "LanguageD:moSymptom > 0", class =
+                        "bsp"))[[1]] +
+      xlim(-1, 1) + ylim(0, 7) +
+      theme_classic() +
+      geom_vline(xintercept = 0,
+                 linetype = "dotted",
+                 color = "blue") +
+      ggtitle(Name) +
+      theme(plot.title = element_text(hjust = 0.5))
+    
+    ggsave(
+      plot = InformedPlotDK,
+      file = here("plots", paste0(
+        Name, "_InformedPlot_DK_", level, ".svg"
+      )),
+      units = "cm",
+      height = 7,
+      width = 12
+    )
+    
+    InformedPlotCH <-
+      plot(hypothesis(InformedModelLanguage, "LanguageC:moSymptom > 0", class =
+                        "bsp"))[[1]] +
+      xlim(-1, 1) + ylim(0, 7) +
+      theme_classic() +
+      geom_vline(xintercept = 0,
+                 linetype = "dotted",
+                 color = "blue") +
+      ggtitle(Name) +
+      theme(plot.title = element_text(hjust = 0.5))
+    
+    ggsave(
+      plot = InformedPlotCH,
+      file = here("plots", paste0(
+        Name, "_InformedPlot_CH_", level, ".svg"
+      )),
+      units = "cm",
+      height = 7,
+      width = 12
+    )
+    
+    post <- posterior_samples(SkepticModelLanguage) %>%
+      select(
+        SkepticPrior = "prior_bsp_LanguageD:moSymptom",
+        SkepticDK = "bsp_LanguageD:moSymptom",
+        SkepticCH = "bsp_LanguageC:moSymptom"
+        #     SkepticJP = "b_LanguageJ:MoSymptom"
+      )
+    
+    post1 <-
+      posterior_samples(InformedModelLanguage) %>%
+      select(
+        InformedPrior = "prior_bsp",
+        InformedDK = "bsp_LanguageD:moSymptom",
+        InformedCH = "bsp_LanguageC:moSymptom"
+        #      InformedJP = "b_LanguageJ:moSymptom"
+      )
+    
+    post2 <- cbind(post, post1) %>%
+      gather(parameter,
+             value,
+             SkepticPrior:InformedCH,
+             factor_key = TRUE)
+    
+    PriorPlot <- post2 %>%
+      subset(parameter %in% c("InformedPrior", "SkepticPrior")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-0.2,0.2) +
+      ylim(0, 80) +
+      theme_classic()
+    
+    
+    DanishPlot <- post2 %>%
+      subset(parameter %in% c("InformedDK", "SkepticDK")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-0.05,0.05) +
+      ylim(0, 700) +
+      theme_classic()
+    
+    ChinesePlot <- post2 %>%
+      subset(parameter %in% c("InformedCH", "SkepticCH")) %>%
+      ggplot(aes(value, fill=parameter)) +
+      geom_density(alpha=0.3) +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      xlim(-0.1,0.1) +
+      ylim(0, 200) +
+      theme_classic()
+    
+    x <- PriorPlot / DanishPlot / ChinesePlot
+    print(x)
+    
+    CompPlot <- ggplot(post2, aes(value, parameter)) +
+      geom_density_ridges() +
+      geom_vline(xintercept = 0, linetype = "dashed") +
+      theme_classic()
+    print(CompPlot)
+    
+    
+  }
+  
+  print("Estimates in a table")
+  #(kable(HypTable))
+  #print(kable(HypTable2))
+  ht <- formattable(HypTable)
+  assign("ht", ht, envir = .GlobalEnv)
+  
+  #return(HypTable)
+}
+
+
+
+
+get_pareto_k <- function(l) {
+  l$diagnostics$pareto_k %>% 
+    as_tibble() %>%
+    mutate(i = 1:n()) %>% 
+    rename(pareto_k = value)
+}
+
+
+
+
+
+
+```
+

@@ -1,0 +1,839 @@
+---
+title: "Schizophrenic semantics"
+author: "AP"
+date: "18/03/2022"
+output: html_document
+---
+
+
+# Load data
+
+```{r}
+
+knitr::opts_chunk$set(echo = TRUE)
+
+rm(list=ls())
+
+# Load libraries
+pacman::p_load(tidyverse,
+               miceadds,
+               here,
+               brms,
+               udpipe,
+               lme4,
+               lmerTest,
+               readxl)
+
+
+
+source.all(here("functions/preprocessing"))
+
+```
+
+
+# Functions
+
+```{r}
+
+cosine <- function(v1,v2){return(sum(v1*v2) / (sqrt(sum(v1^2))*sqrt(sum(v2^2))))}
+
+```
+
+
+# DK preprocessing
+
+```{r}
+
+# Download language models
+
+udmodelDK <- udpipe_download_model(language = "danish")
+
+
+# Danish data
+
+
+d_DK <- read_delim(here("data/raw/Danish_Transcriptions", "DK_Schizophrenia_Adults_Triangles.tsv"), delim="\t")
+
+
+d_DK$Diagnosis <- "Schizophrenia"
+d_DK$Diagnosis[d_DK$Schizophrenia==0]="Control"
+d_DK <- d_DK %>% select(
+  Study,
+  Diagnosis,
+  Participant = Subject,
+  Transcript,
+  Trial
+)
+
+
+d_DK$Language = "Danish"
+d_DK$doc_id <- paste0("S", d_DK$Study, "_", d_DK$Diagnosis, "_P", d_DK$Participant,"_T",d_DK$Trial)
+d_DK$sub_id <- paste0("S", d_DK$Study, "_", d_DK$Diagnosis, "_P", d_DK$Participant)
+
+
+
+
+d_DK <- subset(d_DK, Study!=5)
+
+
+t_DK <- udpipe(x = d_DK$Transcript,
+               object = udmodelDK,
+               doc_id = d_DK$doc_id)
+
+
+t_DK$n<-seq(nrow(t_DK))
+t_DK$token = tolower(t_DK$token)
+
+# Double check unique tokens and lemmas to clean up typos and errors
+tokens <- t_DK %>% group_by(token) %>% dplyr::summarize(freq=n())
+lemmas <- t_DK %>% group_by(lemma) %>% dplyr::summarize(freq=n())
+
+
+# Import word2vec from FastText
+
+w2v_DK <- data.table::fread("D:/wiki.da.vec", quote="", encoding =   "UTF-8")
+
+names(w2v_DK)[1] <- "token"
+names(w2v_DK)[2] <- "V2"
+
+# Import the valence and arousal nomrs
+valence_DK <- read_csv(here("data/raw","valence-da-predicted.txt"))
+arousal_DK <- read_csv(here("data/raw","arousal-da-predicted.txt"))
+sentiment_DK <- merge(valence_DK,arousal_DK,all=T)
+sentiment_DK <- sentiment_DK %>% rename(token=word)
+
+t_DK <- merge(t_DK,sentiment_DK,all.x=TRUE,all.y=FALSE)
+
+t_DK <- merge(t_DK,w2v_DK,all.x=TRUE,all.y=FALSE)
+
+t_DK <- t_DK[order(t_DK$n),]
+
+t_DK <- t_DK %>% select(
+  doc_id,
+  sentence_id,
+  token,
+  lemma,
+  upos,
+  valence,
+  arousal,
+  n,
+  V2:V301
+)
+
+## Aggregate for each document (i.e. trial) the lemma and pos sentence 
+
+x <- t_DK %>% 
+  group_by(doc_id) %>% 
+  summarise(
+    lemmas = paste(lemma, collapse=" "), 
+    PoS = paste(upos, collapse=" "),
+    valenceM = mean(valence,na.rm=T),
+    valenceSD = sd(valence,na.rm=T),
+    arousalM = mean(arousal,na.rm=T),
+    arousalSD = sd(arousal,na.rm=T))
+
+## Aggregate for each document (i.e. trial) the word2vec vectors
+x1 <- t_DK %>%
+  group_by(doc_id) %>%
+  summarise_at(vars(matches("V")), mean, na.rm = TRUE)
+
+x <- merge(x,x1,all=T)
+
+d_DK <- merge(d_DK,x,all=T) 
+
+
+
+
+write_csv(t_DK, here("data/parsed","DkDataWord_cleaned_020222.csv"))
+
+
+#mean for all words in a trial
+
+write_csv(d_DK,here("data/parsed", "DkDataTrial_cleaned_020222.csv"))
+
+
+```
+
+
+
+# CH preprocessing
+
+
+```{r}
+
+udmodelCHI <- udpipe_download_model(language = "chinese")
+
+d_CHI <- read_csv(here("data/raw","MandarinTranscriptions.csv"))
+d_CHI$Trial=NA
+
+for (s in unique(d_CHI$Participant)){
+  d_CHI$Trial[d_CHI$Participant==s]=seq(nrow(d_CHI[d_CHI$Participant==s,]))
+}
+
+d_CHI$Language="Chinese"
+d_CHI$doc_id <- paste0(d_CHI$Participant,"_",d_CHI$Trial)
+
+
+
+t_CHI <- udpipe(x = d_CHI$Transcript,
+                object = udmodelCHI,
+                doc_id = d_CHI$doc_id)
+t_CHI$n<-seq(nrow(t_CHI))
+
+
+
+# Double check unique tokens and lemmas to clean up typos and errors
+tokens <- t_CHI %>% group_by(token) %>% dplyr::summarize(freq=n())
+lemmas <- t_CHI %>% group_by(lemma) %>% dplyr::summarize(freq=n())
+
+# Import word2vec from FastText?
+
+
+w2v_CHI <-  data.table::fread("D:/cc.zh.300.vec", quote="",header= FALSE, encoding="UTF-8")
+view(w2v_CHI[1:1000,])
+
+names(w2v_CHI)[1] <- "token"
+names(w2v_CHI)[2] <- "V2"
+
+# Import the valence and arousal nomrs
+
+sentiment_CHI <- read.csv(here("data/raw", "valence-chi.csv"), header=FALSE, sep=";", encoding="UTF-8")
+
+
+colnames(sentiment_CHI) <- c("token","valence")
+sentiment_CHI$arousal <- abs(sentiment_CHI$valence)
+
+t_CHI <- merge(t_CHI,sentiment_CHI,all.x=TRUE,all.y=FALSE)
+
+t_CHI <- merge(t_CHI,w2v_CHI,all.x=TRUE,all.y=FALSE)
+
+t_CHI <- t_CHI[order(t_CHI$n),]
+t_CHI <- t_CHI %>% select(
+  doc_id,
+  sentence_id,
+  token,
+  lemma,
+  upos,
+  valence,
+  arousal,
+  n,
+  V2:V301
+)
+
+w2v_DK=NULL
+w2v_CHI=NULL
+
+## Aggregate the lemma and pos sentence 
+
+x <- t_CHI %>% 
+  group_by(doc_id) %>% 
+  summarise(
+    lemmas = paste(lemma, collapse=" "), 
+    PoS = paste(upos, collapse=" "),
+    valenceM = mean(valence,na.rm=T),
+    valenceSD = sd(valence,na.rm=T),
+    arousalM = mean(arousal,na.rm=T),
+    arousalSD = sd(arousal,na.rm=T))
+
+## Aggregate the word2vec vectors
+x1 <- t_CHI %>%
+  group_by(doc_id) %>%
+  summarise_at(vars(matches("V")), mean, na.rm = TRUE)
+
+x <- merge(x,x1,all=T)
+
+d_CHI <- merge(d_CHI,x,all=T) 
+
+
+
+write_csv(t_CHI,here("data/parsed","CHIDataWord_200121.csv"))
+
+#mean for all words in a trial
+
+write_csv(d_CHI,here("data/parsed","CHIDataTrial_20012.csv"))
+
+
+```
+
+# GE preprocessing
+
+```{r}
+
+udmodelGE <- udpipe_download_model(language = "german")
+
+d_GE <- read_delim(here("data/raw/German_Transcriptions", "GE_Schizophrenia_Adults_Triangles.tsv"), delim="\t")
+
+
+#d_GE$Diagnosis <- "Schizophrenia"
+
+d_GE$Diagnosis[d_GE$Diagnosis==0]="Control"
+d_GE$Diagnosis[d_GE$Diagnosis==1]="Schizophrenia"
+
+
+
+d_GE <- d_GE %>% select(
+  Study,
+  Diagnosis,
+  Participant = Subject,
+  Transcript,
+  Trial
+)
+
+d_GE$Language = "German"
+
+d_GE$Participant  <- str_remove(d_GE$Participant, "kts")
+d_GE$Participant  <- str_remove(d_GE$Participant, "ktn")
+
+
+d_GE$doc_id <- paste0("S", d_GE$Study, "_", d_GE$Diagnosis, "_P", d_GE$Participant,"_T",d_GE$Trial)
+d_GE$sub_id <- paste0("S", d_GE$Study, "_", d_GE$Diagnosis, "_P", d_GE$Participant)
+
+
+t_GE <- udpipe(x = d_GE$Transcript,
+               object = udmodelGE,
+               doc_id = d_GE$doc_id)
+
+
+
+t_GE$n<-seq(nrow(t_GE))
+t_GE$token = tolower(t_GE$token)
+
+
+
+# Double check unique tokens and lemmas to clean up typos and errors
+tokens <- t_GE %>% group_by(token) %>% dplyr::summarize(freq=n())
+lemmas <- t_GE %>% group_by(lemma) %>% dplyr::summarize(freq=n())
+
+
+# Import word2vec from FastText
+
+w2v_GE <- data.table::fread("D:/wiki.de.vec", quote="", encoding =   "UTF-8" )
+
+
+names(w2v_GE)[1] <- "token"
+names(w2v_GE)[2] <- "V2"
+
+
+t_GE <- merge(t_GE,w2v_GE,all.x=TRUE,all.y=FALSE)
+
+
+t_GE <- t_GE[order(t_GE$n),]
+t_GE <- t_GE %>% select(
+  doc_id,
+  sentence_id,
+  token,
+  lemma,
+  upos,
+ #valence,
+  #arousal,
+  n,
+  V2:V301
+)
+
+## Aggregate for each document (i.e. trial) the lemma and pos sentence 
+x <- t_GE %>% 
+  group_by(doc_id) %>% 
+  summarise(
+    lemmas = paste(lemma, collapse=" "), 
+    PoS = paste(upos, collapse=" ")
+    )
+
+## Aggregate for each document (i.e. trial) the word2vec vectors
+x1 <- t_GE %>%
+  group_by(doc_id) %>%
+  summarise_at(vars(matches("V")), mean, na.rm = TRUE)
+
+x <- merge(x,x1,all=T)
+
+d_GE <- merge(d_GE,x,all=T) 
+
+
+
+write_csv(t_GE,here("data/parsed","GEDataWord_310122.csv"))
+
+
+
+#mean for all words in a trial
+
+write_csv(d_GE,here("data/parsed", "GEDataTrial_310122.csv"))
+
+
+
+```
+
+
+
+# Calculate NLP measures of semantic coherence
+
+```{r}
+
+
+
+# Load the matrix
+
+tot <- read_csv(here("data/parsed/Preprocessed","Final_DataWord.csv"))
+
+
+# Calculate coherence measures
+
+tot_sem <- NULL
+
+name <- "Not_cleaned"
+
+for (i in unique(tot$doc_id)){
+  
+
+  print(which(unique(tot$doc_id)==i))
+  print(i)
+  
+  # Subsetting only to corrent document
+  x <- subset(tot,doc_id==i)
+  x_w2v <- subset(x,select=V2:V301)
+  #x_w2v <- subset(t_DK,select=`0`:`767`)
+  
+  # Basic measures
+  TotalWords <- nrow(x)
+  lengthW<-NA
+  n=1
+  # calculate the length of each word and assign them to a vector
+  for (word in x$token){
+    lengthW[n]<-nchar(word)
+    n=n+1
+  }
+  # Calculate summary stats for basic lexical measures (Mean word length, total words, MLU etc..)
+  WordLengthMean <- mean(lengthW,na.rm=T)
+  WordLengthMedian <- median(lengthW,na.rm=T)
+  WordLengthSD <- sd(lengthW,na.rm=T)
+  WordLengthIQR <- IQR(lengthW,na.rm=T)
+  
+  UniqueTokens <- length(unique(x$token))
+  UniqueLemmas <- length(unique(x$lemma))
+  TokensRatio <- UniqueTokens/TotalWords
+  LemmasRatio <- UniqueLemmas/TotalWords
+  MLU <- TotalWords/max(x$sentence_id)
+  Numerals <- sum(x$upos=="NUM")
+  Nouns <- sum(x$upos=="NOUN")
+  Adverbs <- sum(x$upos=="ADV")
+  Auxiliars <- sum(x$upos=="AUX")
+  Verbs <- sum(x$upos=="VERB")
+  Pronouns <- sum(x$upos=="PRON")
+  Participles <- sum(x$upos=="PART")
+  Adpositions <- sum(x$upos=="ADP")
+  Determinatives <- sum(x$upos=="DET")
+  ProperNouns <- sum(x$upos=="PROPN")
+  Adjectives <- sum(x$upos=="ADJ")
+  CoordinatingConjunction <- sum(x$upos=="CCONJ")
+  Interjections <- sum(x$upos=="INTJ")
+  SubordinatingConjuction <- sum(x$upos=="SCONJ")
+  Symbols <- sum(x$upos=="SYM")
+  
+  # Measuring Sentiment
+  ## Mean level of arousla and valence for each word
+  ArousalMean <- mean(x$arousal,na.rm=T)
+  ArousalMedian <- median(x$arousal,na.rm=T)
+  ArousalSD <- sd(x$arousal,na.rm=T)
+  ArousalIQR <- IQR(x$arousal,na.rm=T)
+  
+  ValenceMean <- mean(x$valence,na.rm=T)
+  ValenceMedian <- median(x$valence,na.rm=T)
+  ValenceSD <- sd(x$valence,na.rm=T)
+  ValenceIQR <- IQR(x$valence,na.rm=T)
+  
+
+  
+  SimT=NA
+  for (w in seq(nrow(x))){
+    if (w>1){
+      SimT[w-1] <-cosine(x_w2v[w-1,],x_w2v[w,])
+    }
+  }
+  SimilarityMean <- mean(SimT,na.rm=T)
+  SimilarityMedian <- median(SimT,na.rm=T)
+  SimilaritySD <- sd(SimT,na.rm=T)
+  SimilarityIQR <- IQR(SimT,na.rm=T)
+  SimilarityMin <- min(SimT,na.rm=T)
+  SimilarityMax <- max(SimT,na.rm=T)
+  Similarity90 <- quantile(SimT, .90, na.rm=T)
+  
+
+  # Coherence-5
+
+  
+  
+  if (nrow(x)>4){
+ Combs <- combn(seq(5),2)
+    CohT = NA
+    n=1
+    for (win in seq(nrow(x)-4)){
+      xW <- x[win:(win+4),]
+      x_w2vW <- x_w2v[win:(win+4),]
+
+      for (comb in seq(ncol(Combs))){
+        CohT[n] <- cosine(x_w2vW[Combs[1,comb],],x_w2vW[Combs[2,comb],])
+        n=n+1
+      }
+    }    
+    
+
+    
+    Coherence5Mean <- mean(CohT,na.rm=T)
+    Coherence5Median <- median(CohT,na.rm=T)
+    Coherence5SD <- sd(CohT,na.rm=T)
+    Coherence5IQR <- IQR(CohT,na.rm=T)
+    Coherence5Min <- min(CohT,na.rm=T)
+    Coherence5Max <- max(CohT,na.rm=T)
+    Coherence590 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    Coherence5Mean <- NA
+    Coherence5Median <- NA
+    Coherence5SD <- NA
+    Coherence5IQR <- NA
+    Coherence5Min <- NA
+    Coherence5Max <- NA
+    Coherence590 <- NA
+  }
+  
+  if (nrow(x)>9){
+    # Coherence-10
+    Combs <- combn(seq(10),2)
+    CohT=NA
+    n=1
+    for (win in seq(nrow(x)-9)){
+      xW <- x[win:(win+9),]
+      x_w2vW <- x_w2v[win:(win+9),]
+      for (comb in seq(ncol(Combs))){
+        CohT[n] <- cosine(x_w2vW[Combs[1,comb],],x_w2vW[Combs[2,comb],])
+        n=n+1
+      }
+    } 
+    Coherence10Mean <- mean(CohT,na.rm=T)
+    Coherence10Median <- median(CohT,na.rm=T)
+    Coherence10SD <- sd(CohT,na.rm=T)
+    Coherence10IQR <- IQR(CohT,na.rm=T)
+    Coherence10Min <- min(CohT,na.rm=T)
+    Coherence10Max <- max(CohT,na.rm=T)
+    Coherence1090 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    Coherence10Mean <- NA
+    Coherence10Median <- NA
+    Coherence10SD <- NA
+    Coherence10IQR <- NA
+    Coherence10Min <- NA
+    Coherence10Max <- NA
+    Coherence1090 <- NA
+  }
+  
+  # K-Coherence
+  # Caculate cosine between each word (i) and another word at k-distance from i (i+k)
+  ## WARNINGs: 
+  ## - we are not separating different sentences.
+  ## - words at the end of a sentence do include the punctuation (in token)
+  
+  
+   ## - words at the end of a sentence do include the punctuation (in token)
+  k = 2
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    
+    CoherenceK2Mean <- mean(CohT,na.rm=T)
+    CoherenceK2Median <- median(CohT,na.rm=T)
+    CoherenceK2SD <- sd(CohT,na.rm=T)
+    CoherenceK2IQR <- IQR(CohT,na.rm=T)
+    CoherenceK2Min <- min(CohT,na.rm=T)
+    CoherenceK2Max <- max(CohT,na.rm=T)
+    CoherenceK290 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK2Mean <- NA
+    CoherenceK2Median <- NA
+    CoherenceK2SD <- NA
+    CoherenceK2IQR <- NA
+    CoherenceK2Min <- NA
+    CoherenceK2Max <- NA
+    CoherenceK290 <- NA
+  }
+  
+  k = 3
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK3Mean <- mean(CohT,na.rm=T)
+    CoherenceK3Median <- median(CohT,na.rm=T)
+    CoherenceK3SD <- sd(CohT,na.rm=T)
+    CoherenceK3IQR <- IQR(CohT,na.rm=T)
+    CoherenceK3Min <- min(CohT,na.rm=T)
+    CoherenceK3Max <- max(CohT,na.rm=T)
+    CoherenceK390 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK3Mean <- NA
+    CoherenceK3Median <- NA
+    CoherenceK3SD <- NA
+    CoherenceK3IQR <- NA
+    CoherenceK3Min <- NA
+    CoherenceK3Max <- NA
+    CoherenceK390 <- NA
+  }
+  
+  k = 4
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK4Mean <- mean(CohT,na.rm=T)
+    CoherenceK4Median <- median(CohT,na.rm=T)
+    CoherenceK4SD <- sd(CohT,na.rm=T)
+    CoherenceK4IQR <- IQR(CohT,na.rm=T)
+    CoherenceK4Min <- min(CohT,na.rm=T)
+    CoherenceK4Max <- max(CohT,na.rm=T)
+    CoherenceK490 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK4Mean <- NA
+    CoherenceK4Median <- NA
+    CoherenceK4SD <- NA
+    CoherenceK4IQR <- NA
+    CoherenceK4Min <- NA
+    CoherenceK4Max <- NA
+    CoherenceK490 <- NA
+  }
+  
+  
+  
+  k = 5
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    
+    CoherenceK5Mean <- mean(CohT,na.rm=T)
+    CoherenceK5Median <- median(CohT,na.rm=T)
+    CoherenceK5SD <- sd(CohT,na.rm=T)
+    CoherenceK5IQR <- IQR(CohT,na.rm=T)
+    CoherenceK5Min <- min(CohT,na.rm=T)
+    CoherenceK5Max <- max(CohT,na.rm=T)
+    CoherenceK590 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK5Mean <- NA
+    CoherenceK5Median <- NA
+    CoherenceK5SD <- NA
+    CoherenceK5IQR <- NA
+    CoherenceK5Min <- NA
+    CoherenceK5Max <- NA
+    CoherenceK590 <- NA
+  }
+  
+  k = 6
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK6Mean <- mean(CohT,na.rm=T)
+    CoherenceK6Median <- median(CohT,na.rm=T)
+    CoherenceK6SD <- sd(CohT,na.rm=T)
+    CoherenceK6IQR <- IQR(CohT,na.rm=T)
+    CoherenceK6Min <- min(CohT,na.rm=T)
+    CoherenceK6Max <- max(CohT,na.rm=T)
+    CoherenceK690 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK6Mean <- NA
+    CoherenceK6Median <- NA
+    CoherenceK6SD <- NA
+    CoherenceK6IQR <- NA
+    CoherenceK6Min <- NA
+    CoherenceK6Max <- NA
+    CoherenceK690 <- NA
+  }
+  
+  k = 7
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK7Mean <- mean(CohT,na.rm=T)
+    CoherenceK7Median <- median(CohT,na.rm=T)
+    CoherenceK7SD <- sd(CohT,na.rm=T)
+    CoherenceK7IQR <- IQR(CohT,na.rm=T)
+    CoherenceK7Min <- min(CohT,na.rm=T)
+    CoherenceK7Max <- max(CohT,na.rm=T)
+    CoherenceK790 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK7Mean <- NA
+    CoherenceK7Median <- NA
+    CoherenceK7SD <- NA
+    CoherenceK7IQR <- NA
+    CoherenceK7Min <- NA
+    CoherenceK7Max <- NA
+    CoherenceK790 <- NA
+  }
+  
+  k = 8
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK8Mean <- mean(CohT,na.rm=T)
+    CoherenceK8Median <- median(CohT,na.rm=T)
+    CoherenceK8SD <- sd(CohT,na.rm=T)
+    CoherenceK8IQR <- IQR(CohT,na.rm=T)
+    CoherenceK8Min <- min(CohT,na.rm=T)
+    CoherenceK8Max <- max(CohT,na.rm=T)
+    CoherenceK890 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK8Mean <- NA
+    CoherenceK8Median <- NA
+    CoherenceK8SD <- NA
+    CoherenceK8IQR <- NA
+    CoherenceK8Min <- NA
+    CoherenceK8Max <- NA
+    CoherenceK890 <- NA
+  }
+  
+  
+  k = 9
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK9Mean <- mean(CohT,na.rm=T)
+    CoherenceK9Median <- median(CohT,na.rm=T)
+    CoherenceK9SD <- sd(CohT,na.rm=T)
+    CoherenceK9IQR <- IQR(CohT,na.rm=T)
+    CoherenceK9Min <- min(CohT,na.rm=T)
+    CoherenceK9Max <- max(CohT,na.rm=T)
+    CoherenceK990 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK9Mean <- NA
+    CoherenceK9Median <- NA
+    CoherenceK9SD <- NA
+    CoherenceK9IQR <- NA
+    CoherenceK9Min <- NA
+    CoherenceK9Max <- NA
+    CoherenceK990 <- NA
+  }
+  
+  
+  k = 10
+  if (nrow(x)>k){
+    CohT=NA
+    for (win in seq(nrow(x)-k)){
+      v1 <- x_w2v[win,]
+      v2 <- x_w2v[win+k,]
+      CohT[win] <- cosine(v1,v2)
+    }
+    CoherenceK10Mean <- mean(CohT,na.rm=T)
+    CoherenceK10Median <- median(CohT,na.rm=T)
+    CoherenceK10SD <- sd(CohT,na.rm=T)
+    CoherenceK10IQR <- IQR(CohT,na.rm=T)
+    CoherenceK10Min <- min(CohT,na.rm=T)
+    CoherenceK10Max <- max(CohT,na.rm=T)
+    CoherenceK1090 <- quantile(CohT, .90, na.rm=T)
+  } else {
+    CoherenceK10Mean <- NA
+    CoherenceK10Median <- NA
+    CoherenceK10SD <- NA
+    CoherenceK10IQR <- NA
+    CoherenceK10Min <- NA
+    CoherenceK10Max <- NA
+    CoherenceK1090 <- NA
+  }
+  
+ 
+  # Btw sentence coherence (1st order)
+  CohS<-NA
+  if (max(x$sentence_id)>1){
+    for (s in seq((max(x$sentence_id)-1))){
+      xS1 <- subset(x,sentence_id==s)
+      xS2 <- subset(x,sentence_id==(s+1))
+      v1 <- colMeans(subset(xS1, select=V2:V301),na.rm=T)
+      v2 <- colMeans(subset(xS2, select=V2:V301),na.rm=T)
+      CohS[s]<-cosine(v1,v2)
+      # V2:V301
+      #`0`:`767`
+    }
+    CoherenceSntMean <- mean(CohS,na.rm=T)
+    CoherenceSntMedian <- median(CohS,na.rm=T)
+    CoherenceSntSD <- sd(CohS,na.rm=T)
+    CoherenceSntIQR <- IQR(CohS,na.rm=T)
+    CoherenceSntMin <- min(CohS,na.rm=T)
+    CoherenceSntMax <- max(CohS,na.rm=T)
+    CoherenceSnt90 <- quantile(CohS, .90, na.rm=T)
+  } else {
+    CoherenceSntMean <- NA
+    CoherenceSntMedian <- NA
+    CoherenceSntSD <- NA
+    CoherenceSntIQR <- NA
+    CoherenceSntMin <- NA
+    CoherenceSntMax <- NA
+    CoherenceSnt90 <- NA
+  }
+  
+  # Btw sentence coherence (2nd order)
+  CohS<-NA
+  if (max(x$sentence_id)>2){
+    for (s in seq(max(x$sentence_id)-2)){
+      xS1 <- subset(x,sentence_id==s)
+      xS2 <- subset(x,sentence_id==(s+2))
+      v1 <- colMeans(subset(xS1, select=V2:V301),na.rm=T)
+      v2 <- colMeans(subset(xS2, select=V2:V301),na.rm=T)
+      CohS[s]<-cosine(v1,v2)
+      # V2:V301
+    }
+    CoherenceSnt2Mean <- mean(CohS,na.rm=T)
+    CoherenceSnt2Median <- median(CohS,na.rm=T)
+    CoherenceSnt2SD <- sd(CohS,na.rm=T)
+    CoherenceSnt2IQR <- IQR(CohS,na.rm=T)
+    CoherenceSnt2Min <- min(CohS,na.rm=T)
+    CoherenceSnt2Max <- max(CohS,na.rm=T)
+    CoherenceSnt290 <- quantile(CohS, .90, na.rm=T)
+  } else {
+    CoherenceSnt2Mean <- NA
+    CoherenceSnt2Median <- NA
+    CoherenceSnt2SD <- NA
+    CoherenceSnt2IQR <- NA
+    CoherenceSnt2Min <- NA
+    CoherenceSnt2Max <- NA
+    CoherenceSnt290 <- NA
+  }
+  
+  
+  
+  
+  res <- data.frame(doc_id=i,TotalWords, WordLengthMean, WordLengthMedian, WordLengthSD, WordLengthIQR, UniqueTokens, UniqueLemmas, TokensRatio, LemmasRatio, MLU, Numerals, Nouns, Adverbs, Auxiliars,Verbs,Pronouns, Participles, Adpositions, Determinatives, ProperNouns, Adjectives, CoordinatingConjunction, Interjections, SubordinatingConjuction, Symbols, ArousalMean, ArousalMedian, ArousalSD, ArousalIQR, ValenceMean, ValenceMedian, ValenceSD, ValenceIQR, SimilarityMean, SimilarityMedian, SimilaritySD, SimilarityIQR, SimilarityMin, SimilarityMax, Similarity90, Coherence5Mean, Coherence5Median, Coherence5SD, Coherence5IQR, Coherence5Min, Coherence5Max, Coherence590, Coherence10Mean, Coherence10Median, Coherence10SD, Coherence10IQR, Coherence10Min, Coherence10Max, Coherence1090, CoherenceK5Mean, CoherenceK5Median, CoherenceK5SD, CoherenceK5IQR, CoherenceK5Min, CoherenceK5Max, CoherenceK590, CoherenceK6Mean, CoherenceK6Median, CoherenceK6SD, CoherenceK6IQR, CoherenceK6Min, CoherenceK6Max, CoherenceK690, CoherenceK7Mean, CoherenceK7Median, CoherenceK7SD, CoherenceK7IQR, CoherenceK7Min, CoherenceK7Max, CoherenceK790, CoherenceK8Mean, CoherenceK8Median, CoherenceK8SD, CoherenceK8IQR, CoherenceK8Min, CoherenceK8Max, CoherenceK890, CoherenceSntMean, CoherenceSntMedian, CoherenceSntSD, CoherenceSntIQR, CoherenceSntMin, CoherenceSntMax, CoherenceSnt90, CoherenceSnt2Mean, CoherenceSnt2Median, CoherenceSnt2SD, CoherenceSnt2IQR, CoherenceSnt2Min, CoherenceSnt2Max, CoherenceSnt290, CoherenceK2Mean, CoherenceK2Median, CoherenceK2SD, CoherenceK2IQR, CoherenceK2Min, CoherenceK2Max, CoherenceK290, CoherenceK3Mean, CoherenceK3Median, CoherenceK3SD, CoherenceK3IQR, CoherenceK3Min, CoherenceK3Max, CoherenceK390, CoherenceK4Mean, CoherenceK4Median, CoherenceK4SD, CoherenceK4IQR, CoherenceK4Min, CoherenceK4Max, CoherenceK490, CoherenceK9Mean, CoherenceK9Median, CoherenceK9SD, CoherenceK9IQR, CoherenceK9Min, CoherenceK9Max, CoherenceK990, CoherenceK10Mean, CoherenceK10Median, CoherenceK10SD, CoherenceK10IQR, CoherenceK10Min, CoherenceK10Max, CoherenceK1090)
+                    
+  
+  if (exists("tot_sem")){tot_sem<-rbind(tot_sem, res)} else {tot_sem<-res}
+  write_csv(tot_sem, here("data", paste0("Coherence_Final_", name, ".csv")))
+  
+}
+
+
+
+
+```
+
+
